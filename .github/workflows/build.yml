@@ -35,8 +35,9 @@ jobs:
         run: call package.cmd
       - uses: actions/upload-artifact@v7
         with:
-          name: EnshroudedLiveMap-${{ steps.version.outputs.version }}
-          path: dist/EnshroudedLiveMap-*.zip
+          name: livemap-${{ steps.version.outputs.version }}
+          path: dist/distribution/*
+          retention-days: 90
           if-no-files-found: error
 
   release:
@@ -48,11 +49,11 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: EnshroudedLiveMap-${{ needs.build.outputs.version }}
+          name: livemap-${{ needs.build.outputs.version }}
           path: dist
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" dist/*.zip --verify-tag --generate-notes --title "Enshrouded Live Map $RELEASE_TAG"
+        run: gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes --title "Enshrouded Live Map $RELEASE_TAG"

@@ -9,6 +9,8 @@ node_modules/
 *.obj
 *.exe
 *.dll
+!dependencies/shroudtopia/shroudtopia.dll
+!dependencies/shroudtopia/winmm.dll
 *.lib
 *.exp
 *.res

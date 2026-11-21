@@ -1,0 +1,6 @@
+Microsoft Visual C++ runtime DLLs are Copyright Microsoft Corporation.
+Unmodified files from Visual Studio's x64 VC/Redist directory, distributed for
+use with this application under Visual Studio Distributable Code terms.
+They are not covered by Livemap's MIT license.
+https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution
+https://visualstudio.microsoft.com/license-terms/

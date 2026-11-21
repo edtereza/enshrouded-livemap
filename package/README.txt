@@ -1,13 +1,23 @@
-Enshrouded Live Map 1.11.3
+Enshrouded Live Map 1.12.0
 =========================
 
-SHROUDTOPIA (CLIENT AND SERVER)
-Install Shroudtopia: https://github.com/s0t7x/shroudtopia
-Copy mods/livemap.dll into mods/ and livemap/ beside the game/server executable.
-Merge "Livemap": { "active": true } into the mods object in shroudtopia.json.
+SHROUDTOPIA PACKAGES (CLIENT AND SERVER)
+livemap-{version}.zip includes Livemap, Shroudtopia, clean defaults and both map styles.
+livemap-{version}-full.zip adds app-local Visual C++ x64 runtime DLLs. Install ONE ZIP.
+For the standard ZIP, install Microsoft Visual C++ Redistributable x64 separately.
+Stop the game/server and back up existing DLLs, livemap.ini and shroudtopia.json.
+Extract beside enshrouded_server.exe or enshrouded.exe, then restore/merge your settings.
+Keep existing mods such as Guardian enabled when merging shroudtopia.json.
+The included configuration enables "Livemap": { "active": true } under mods.
+Each archive has package-manifest.json with SHA-256 hashes. SHA256SUMS.txt covers all release files.
+Loader provenance and licenses are in licenses/. No game files or player data are included.
 Start through Shroudtopia normally. Keep livemap.ini beside the executable.
 Remove Livemap's iphlpapi.dll when using this method. Use only one loading method.
 Restart the game/server to disable or unload Livemap; live unloading is unsupported.
+
+ALTERNATIVE LOADING
+The standalone iphlpapi.dll and EnshroudedWithLivemap.exe are separate release downloads.
+For this method, copy ONLY livemap/ from a ZIP, without its Shroudtopia DLLs/configuration.
 
 ALTERNATIVE LOCAL GAME (Windows Steam build 26430625, SVN 1287369)
 Copy iphlpapi.dll, EnshroudedWithLivemap.exe and the livemap folder next to enshrouded.exe.

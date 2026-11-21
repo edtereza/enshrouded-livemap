@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.12.0 (2026-11-21)
+- Publish Guardian-style standard and full Shroudtopia ZIPs from the same GitHub build.
+- Bundle the pinned Shroudtopia loader, clean configuration defaults, both map styles and licenses.
+- Add app-local Visual C++ x64 runtime DLLs only to the full package.
+- Verify archive contents and file hashes, and publish manifests plus SHA256SUMS.txt.
+- Keep standalone proxy/launcher binaries separate from Shroudtopia ZIPs.
+
 ## 1.11.3 (2026-11-21)
 - Prepare the maintained source repository for GitHub with the Livemap banner and original-author credits.
 - Remove redundant HD configuration, consolidate test targets and clean stale comments.

@@ -116,3 +116,11 @@ Copyright notice:
 
   Jean-loup Gailly        Mark Adler
   jloup@gzip.org          madler@alumni.caltech.edu
+
+## Shroudtopia loader
+
+The standard and full ZIPs include the pinned Shroudtopia 0.1.1 loader
+(MIT, Copyright (c) 2024 Miguel Oppermann). Its complete license and provenance
+are in dependencies/shroudtopia/ and are shipped under licenses/ in each ZIP.
+The full ZIP additionally includes unmodified Microsoft Visual C++ x64 runtime
+DLLs with package/Microsoft-runtime-NOTICE.txt; these DLLs are not covered by MIT.

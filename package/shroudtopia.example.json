@@ -1,0 +1,8 @@
+{
+  "active": true,
+  "bootDelay": 3000,
+  "enableLogging": true,
+  "logLevel": "INFO",
+  "mods": { "Livemap": { "active": true } },
+  "updateDelay": 500
+}
