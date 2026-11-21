@@ -1096,7 +1096,7 @@
     const groupOf = c => c.id === "altar" ? "Bases" : c.id.startsWith("ore:") ? "Finds"
         : c.id.startsWith("chest") || c.id === "sarcophagus" || c.id === "fishing" || c.id === "looted" || c.id.startsWith("lock_") ? "Loot" : "Places";
     const labelOf = c => t(c.label === "Bilhetes e lore" ? "Notes and lore" : c.label);
-    const groupOrder = ["Places", "Bases", "Finds", "Loot"];
+    const groupOrder = ["Bases", "Places", "Finds", "Loot"];
     const collator = new Intl.Collator(language, { sensitivity: "base", numeric: true });
     // Sort only the panel's copy: POI category indexes also drive map rendering.
     const categories = [...data.categories].sort((a, b) =>
