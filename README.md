@@ -329,9 +329,12 @@ The [GitHub Actions workflow](.github/workflows/build.yml) compiles, runs the C+
 packages the project on pushes, pull requests and manual runs. Downloadable ZIPs are stored
 as workflow artifacts.
 
-To publish a release, set the version in `CMakeLists.txt` and the package README, then push
-the corresponding tag, for example `v1.12.2`. The workflow checks that the tag matches the
-project version before creating the GitHub Release.
+Every push to `main` automatically creates the version tag and release after the build,
+tests and package verification succeed. Increment the version in `CMakeLists.txt`, this
+README and the package README with each change before committing. No manual tag push is
+needed. The release is named only `v{version}` and attaches only the standard and full ZIPs.
+Published versions cannot be reused for a different commit. Re-running the same commit is
+safe; an interrupted draft publication can resume. Explicit version-tag pushes remain supported.
 
 Local compilation is available through `build.cmd`, which locates the installed Visual
 Studio C++ tools and produces the binaries under `build/`. `package.cmd` builds, tests and

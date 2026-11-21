@@ -41,11 +41,14 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    concurrency:
+      group: release-${{ needs.build.outputs.version }}
+      cancel-in-progress: false
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -55,5 +58,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" dist/*.zip --verify-tag --generate-notes --title "$RELEASE_TAG"
+          RELEASE_TAG: v${{ needs.build.outputs.version }}
+          RELEASE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if tagged_sha=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq '.sha' 2>/dev/null); then
+            if [ "$tagged_sha" != "$RELEASE_SHA" ]; then
+              echo "::error::Increment the version in CMakeLists.txt, README.md and package/README.txt before committing: $RELEASE_TAG already belongs to another commit."
+              exit 1
+            fi
+          fi
+          if gh release view "$RELEASE_TAG" --json isDraft > release.json 2>/dev/null; then
+            if [ "$(jq -r '.isDraft' release.json)" = false ]; then
+              echo "$RELEASE_TAG is already published for this commit."
+              exit 0
+            fi
+            gh release upload "$RELEASE_TAG" dist/*.zip --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/*.zip --target "$RELEASE_SHA" --draft --generate-notes --title "$RELEASE_TAG"
+          fi
+          gh release edit "$RELEASE_TAG" --draft=false --title "$RELEASE_TAG"

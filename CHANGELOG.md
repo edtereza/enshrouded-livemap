@@ -1,6 +1,7 @@
 # Changelog
 
 ## 1.12.2 (2026-11-21)
+- Automatically publish the project version on every push to main after all build checks pass.
 - Show Bases above Places in the marker panel, preserving alphabetical ordering within groups.
 
 ## 1.12.1 (2026-11-21)
