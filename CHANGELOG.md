@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.12.2 (2026-11-21)
+- Show Bases above Places in the marker panel, preserving alphabetical ordering within groups.
+
 ## 1.12.1 (2026-11-21)
 - Preserve UTF-8 titles from livemap.ini, including accents and BOMs.
 - Send the title in live map state and update the browser tab; reload Title changes within five seconds.

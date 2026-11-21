@@ -10,7 +10,7 @@ localized lore markers and support for local worlds.
 
 Repository: [edtereza/enshrouded-livemap](https://github.com/edtereza/enshrouded-livemap)
 
-Current version: **1.12.1**. See the [changelog](CHANGELOG.md).
+Current version: **1.12.2**. See the [changelog](CHANGELOG.md).
 
 ## Human and AI contributions
 
@@ -330,7 +330,7 @@ packages the project on pushes, pull requests and manual runs. Downloadable ZIPs
 as workflow artifacts.
 
 To publish a release, set the version in `CMakeLists.txt` and the package README, then push
-the corresponding tag, for example `v1.12.1`. The workflow checks that the tag matches the
+the corresponding tag, for example `v1.12.2`. The workflow checks that the tag matches the
 project version before creating the GitHub Release.
 
 Local compilation is available through `build.cmd`, which locates the installed Visual

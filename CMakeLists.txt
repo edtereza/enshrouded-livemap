@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(enshrouded_livemap VERSION 1.12.1 LANGUAGES CXX ASM_MASM RC)
+project(enshrouded_livemap VERSION 1.12.2 LANGUAGES CXX ASM_MASM RC)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
