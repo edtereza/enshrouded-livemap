@@ -1,0 +1,2518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Enshrouded Live Map</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  /* The look of the game's own map screen: Alegreya (closest free match to the game's
+     Harmonique Display), the game's gold filigree frame, hairlines and player arrow (ui/, from
+     the client's UI textures), diamond toggles. Font in fonts/ (SIL OFL, see fonts/OFL.txt). The
+     script hands the art to CSS as --ui-* and adds the optional access key to asset requests. */
+  :root {
+    --bg: #120f18; --panel: rgba(18, 14, 25, 0.94); --raised: #221b2e; --line: rgba(220, 183, 107, 0.22);
+    --text: #f3e9d4; --muted: #bcae94; --gold: #dcb76b; --gold-bright: #f6dca0; --gold-dim: #8f713a;
+    --accent: #dcb76b; --danger: #ff8f7f; --ok: #7ee2a8;
+    --serif: "Alegreya", "Noto Serif", Georgia, serif; --caps: "Alegreya", Georgia, serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 500 15px/1.35 var(--serif); -webkit-font-smoothing: antialiased; }
+  #characterDialog { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none;
+    padding: 42px 0 0; margin: 0; border: 0; background: var(--bg); }
+  #closeCharacter { position: absolute; top: 7px; right: 12px; }
+  #characterFrame { width: 100%; height: 100%; border: 0; background: white; }
+  #map { position: absolute; inset: 0; background: #15111d; }
+  /* The game's map vignette: the edges fall off into the dark. Own layer, so panning never repaints it. */
+  #map::after { content: ""; position: absolute; inset: 0; z-index: 450; pointer-events: none; will-change: transform;
+    background: radial-gradient(ellipse 120% 100% at 50% 50%, rgba(10, 8, 14, 0) 62%, rgba(10, 8, 14, 0.55) 88%, rgba(10, 8, 14, 0.85) 100%); }
+  .card { position: absolute; z-index: 1000; background: var(--panel); color: var(--text);
+    border: 20px solid transparent; border-image: var(--ui-frame) 40 / 20px / 0 stretch;
+    padding: 0 6px 2px; box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5); }
+  .card::before { content: ""; position: absolute; inset: 0; background: var(--ui-pattern) center / 300px;
+    opacity: 0.06; pointer-events: none; }
+  .card > * { position: relative; }
+  h2.title, #players h2, #clock h2, #calib h2, #pois h2 { margin: 0 0 8px; padding-bottom: 9px; font: 700 12px/1.2 var(--caps);
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); background: var(--ui-separator) left bottom / 100% 5px no-repeat; }
+  #right { position: absolute; z-index: 1000; top: 10px; right: 10px; width: 310px;
+    max-width: calc(100vw - 70px); max-height: calc(100dvh - 65px); overflow-y: auto;
+    display: flex; flex-direction: column; gap: 8px; }
+  #right .card { position: relative; flex: none; width: 100%; min-width: 0; }
+  #clock { min-width: 232px; }
+  #offline h2 { margin: 0 0 8px; padding-bottom: 9px; font: 700 12px/1.2 var(--caps);
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); }
+  #offline ul { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
+  #offline li { padding: 3px 0; color: var(--muted); overflow-wrap: anywhere; }
+  #players ul { max-height: 260px; overflow-y: auto; }
+  #clock .big { font-size: 46px; font-weight: 500; line-height: 1; margin: 4px 0 10px; color: #fff4dc;
+    font-variant-numeric: oldstyle-nums; text-shadow: 0 0 18px rgba(220, 183, 107, 0.3); }
+  #clock .row { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; color: var(--muted);
+    border-top: 1px solid var(--line); font-variant-numeric: lining-nums tabular-nums; }
+  #clock .row b { color: var(--text); font-weight: 700; }
+  #left { position: absolute; z-index: 1000; top: 10px; left: 54px; display: flex; flex-direction: column;
+    gap: 8px; align-items: flex-start; max-height: calc(100vh - 10px - var(--left-bottom, 56px)); }
+  #left .card { position: relative; }
+  /* Movable panels (wide screens): the title is the handle. */
+  @media (min-width: 601px) {
+    #pois h2 { cursor: grab; user-select: none; touch-action: none; }
+    .card.dragging, .card.dragging h2 { cursor: grabbing; }
+  }
+  .card.dragging { box-shadow: 0 26px 54px rgba(0, 0, 0, 0.65); }
+  #players { max-width: 330px; min-width: 200px; }
+  #players .name { min-width: 0; overflow-wrap: anywhere; }
+  #players button.dot { position: relative; padding: 0; margin: 0; border: 0; border-radius: 0; cursor: pointer; }
+  #players button.dot::after { content: ""; position: absolute; inset: -6px; }
+  #players button.dot:disabled { cursor: default; }
+  #players button.dot:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 4px; }
+  #players li.offline { color: var(--muted); cursor: default; }
+  #players li.offline .dot { background: var(--muted); opacity: 0.5; }
+  #players .offline-status { grid-column: 3 / 5; color: var(--muted); font-size: 13px; }
+  #players ul { list-style: none; margin: 0; padding: 0; }
+  #players li { display: grid; grid-template-columns: 9px minmax(0, 1fr) auto auto; align-items: baseline; gap: 9px; padding: 3px 0; cursor: pointer; font-size: 16px; }
+  #players li .dot { width: 9px; height: 9px; flex: none; transform: rotate(45deg) translateY(-1px); box-shadow: 0 0 7px rgba(0, 0, 0, 0.6); }
+  #players li .coords { color: var(--muted); font-size: 13px; font-variant-numeric: lining-nums tabular-nums; }
+  #players li .deaths { color: #e3a08c; font-size: 14px; font-weight: 600; white-space: nowrap; font-variant-numeric: lining-nums tabular-nums; }
+  #players li .deaths:empty { display: none; }
+  #players li .deaths b { font: 400 15px "Segoe UI Symbol", "Noto Sans Symbols 2", "DejaVu Sans", sans-serif; margin-right: 3px; }
+  #players li .follow { display: none; margin-left: auto; font: 700 11px var(--caps); letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); }
+  #players li.following .name { color: var(--gold-bright); }
+
+  #players li.placeholder, #players li.empty { color: var(--muted); cursor: default; }
+  #pois { width: 296px; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--gold-dim) transparent; }
+  #pois.hidden { display: none; }
+  #pois h2 { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; }
+  #pois h2 button { background: none; border: 0; color: var(--muted); cursor: pointer; font: 500 14px var(--serif);
+    letter-spacing: 0; text-transform: none; padding: 0; }
+  #pois h2 button:hover { color: var(--gold-bright); }
+  #pois label { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; font-size: 15px; }
+  #pois label:hover .t { color: var(--gold-bright); }
+  #pois .disc { display: flex; flex-wrap: wrap; gap: 6px; padding: 3px 0 6px; }
+  #pois select { background: rgba(0, 0, 0, 0.35); color: var(--text); border: 1px solid var(--line); border-radius: 0;
+    font: 500 14px var(--serif); padding: 3px 6px; max-width: 100%; }
+  #pois select:focus-visible, #pois button:focus-visible, #poiToggle:focus-visible { outline: 1px solid var(--gold-bright); outline-offset: 2px; }
+  #pois .disc-note { color: var(--muted); font-size: 13px; width: 100%; line-height: 1.3; }
+  #pois input[type=checkbox] { appearance: none; -webkit-appearance: none; width: 11px; height: 11px; margin: 0 5px 0 3px; flex: none;
+    transform: rotate(45deg); border: 1px solid var(--gold-dim); background: rgba(0, 0, 0, 0.3); cursor: pointer;
+    transition: background-color 0.15s ease-out, box-shadow 0.15s ease-out; }
+  #pois input[type=checkbox]:checked { background: var(--gold); border-color: var(--gold-bright); box-shadow: 0 0 8px rgba(220, 183, 107, 0.65); }
+  #pois input[type=checkbox]:focus-visible { outline: 1px solid var(--gold-bright); outline-offset: 3px; }
+  #pois label .sw { width: 18px; height: 18px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; }
+  #pois label .sw:not(:has(img)) { width: 9px; height: 9px; margin: 0 4px; }
+  #pois label .sw img { width: 18px; height: 18px; display: block; }
+  #pois label .n { margin-left: auto; color: var(--muted); font-size: 13px; font-variant-numeric: lining-nums tabular-nums; }
+  #pois .group { margin-top: 6px; padding-top: 12px; font: 700 12px var(--caps); letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold);
+    background: var(--ui-hairline) left top / 100% 2px no-repeat; }
+  #poiList > .group:first-child { margin-top: 0; padding-top: 2px; background: none; }
+  #search { width: 296px; padding-top: 0; padding-bottom: 0; }
+  #searchBox { width: 100%; background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); color: var(--text);
+    font: 500 15px var(--serif); padding: 5px 8px; outline: none; }
+  #searchBox:focus { border-color: var(--gold-dim); }
+  #searchBox::placeholder { color: var(--muted); }
+  #searchResults { list-style: none; margin: 0; padding: 0; }
+  #searchResults:not(:empty) { margin-top: 6px; }
+  #searchResults li { display: flex; flex-wrap: wrap; justify-content: space-between; column-gap: 10px; padding: 4px 6px; cursor: pointer; font-size: 15px; }
+  #searchResults li .k { color: var(--muted); font-size: 13px; white-space: nowrap; }
+  #searchResults li .m { flex-basis: 100%; color: var(--muted); font-size: 13px; line-height: 1.25; font-variant-numeric: lining-nums tabular-nums; }
+  #searchResults li .m .nd { color: #e3a08c; }
+  #searchResults li.from { cursor: default; color: var(--muted); font-size: 12px; font-style: italic; padding-top: 6px; }
+  #searchResults li.from:hover { background: none; color: var(--muted); }
+  #searchResults li.head { cursor: default; color: var(--gold); font: 700 12px var(--caps); letter-spacing: 0.1em; text-transform: uppercase; padding: 2px 6px 6px; }
+  #searchResults li.head:hover { background: none; color: var(--gold); }
+  #searchResults li[aria-selected="true"], #searchResults li:hover { background: rgba(220, 183, 107, 0.14); color: var(--gold-bright); }
+  .search-ping { border: 2px solid var(--gold-bright); border-radius: 50%; box-shadow: 0 0 14px rgba(246, 220, 160, 0.8);
+    animation: ping 1.4s ease-out 3; }
+  @keyframes ping { from { transform: scale(0.3); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
+  .mark-pin { background: none; border: 0; }
+  .mark-pin .ring { position: absolute; inset: 0; border: 2px solid var(--gold-bright); border-radius: 50%;
+    box-shadow: 0 0 14px rgba(246, 220, 160, 0.8); animation: ping 2s ease-out infinite; }
+  .mark-pin .dot { position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
+    background: var(--gold-bright); border: 2px solid #1a1208; box-shadow: 0 0 8px rgba(0, 0, 0, 0.8); }
+  @media (prefers-reduced-motion: reduce) { .search-ping, .mark-pin .ring { animation: none; } }
+  #poiList::after { content: ""; display: block; position: sticky; bottom: -2px; height: 26px; margin-top: -8px; pointer-events: none;
+    background: linear-gradient(rgba(18, 14, 25, 0), rgba(18, 14, 25, 0.96)); }
+  #poiToggle { background: var(--panel); color: var(--gold); text-shadow: 0 0 10px rgba(220, 183, 107, 0.35);
+    border: 1px solid var(--gold-dim); padding: 8px 22px; cursor: pointer; font: 700 13px var(--caps); letter-spacing: 0.16em; text-transform: uppercase;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45); transition: color 0.15s ease-out, border-color 0.15s ease-out; }
+  #poiToggle:hover { color: var(--gold-bright); border-color: var(--gold); }
+  #poiToggle[aria-expanded="true"] { display: none; }
+  #pois h2 .actions { display: flex; align-items: baseline; gap: 14px; }
+  #pois h2 #poiClose { font-size: 15px; color: var(--gold); }
+  .poi-tip { background: var(--panel); color: var(--text); border: 1px solid var(--gold-dim); border-radius: 0;
+    padding: 3px 10px; font: 500 14px var(--serif); box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5); }
+  .poi-tip::before { border-top-color: var(--gold-dim) !important; }
+  .poi-canvas { pointer-events: none; }
+  .leaflet-overlay-pane svg path { outline: none; }
+  #status { top: auto; bottom: 10px; left: 10px; border: 1px solid var(--gold-dim); border-image: none; padding: 4px 12px 4px 26px;
+    font: 700 11px var(--caps); letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); }
+  #status::before { inset: auto; left: 10px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; transform: rotate(45deg);
+    background: var(--ok); box-shadow: 0 0 8px var(--ok); opacity: 1; }
+  #status.bad { color: var(--danger); }
+  #status.bad::before { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+  #tileNote { top: 10px; left: 50%; transform: translateX(-50%); max-width: min(460px, calc(100vw - 32px));
+    font-size: 14px; color: var(--danger); display: none; }
+  #tileNote.open { display: block; }
+  #calib { bottom: 40px; right: 10px; max-width: 340px; display: none; font-size: 14px; }
+  #calib.open { display: block; }
+  #calib textarea { width: 100%; height: 80px; background: #0d0b12; color: var(--text); border: 1px solid var(--line); font: 12px monospace; }
+  #calib select { background: rgba(0, 0, 0, 0.35); color: var(--text); border: 1px solid var(--line); font: inherit; }
+  #calib button, #calibToggle { background: var(--gold); color: #1a1208; border: 0; padding: 6px 12px; font: 700 12px var(--caps);
+    letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; margin-top: 6px; }
+  #calibToggle { position: absolute; z-index: 1000; bottom: 40px; right: 10px; }
+  /* Players: the game's white arrow with a halo in the player's colour; names with a dark halo, as the game draws them. */
+  .player-label { background: none; border: 0; box-shadow: none; padding: 0; font: 700 15px var(--serif); color: #fff6e4; white-space: nowrap;
+    text-shadow: 0 0 3px #000, 0 0 8px rgba(0, 0, 0, 0.9), 0 1px 2px #000; }
+  .player-label::before { display: none; }
+  .leaflet-container { font: inherit; }
+  .player-icon { background: none; border: 0; }
+  .player-icon .halo { position: absolute; left: -22px; top: -22px; width: 72px; height: 72px; pointer-events: none;
+    background: radial-gradient(circle, var(--c) 0, transparent 62%); opacity: 0.55; }
+  .player-icon .arrow { position: relative; width: 28px; height: 28px; transition: transform 0.25s linear;
+    filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000) drop-shadow(0 0 5px rgba(0, 0, 0, 0.6)); }
+  .player-icon .arrow i { position: absolute; inset: -2px; transform: rotate(-90deg); background: var(--c);
+    -webkit-mask: var(--ui-player) center / contain no-repeat; mask: var(--ui-player) center / contain no-repeat; }
+  .player-icon .dot { width: 14px; height: 14px; border: 2px solid #fff6e4; margin: 7px; transform: rotate(45deg); box-shadow: 0 0 6px rgba(0, 0, 0, 0.8); }
+  .leaflet-container:not(.leaflet-zoom-anim) .player-icon { transition: transform 0.25s linear; }
+  .leaflet-bottom.leaflet-left { margin-bottom: 44px; }
+  .leaflet-control-layers { background: var(--panel); color: var(--text); border: 1px solid var(--gold-dim) !important; border-radius: 0;
+    padding: 5px 12px; font: 500 15px var(--serif); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45) !important; }
+  .leaflet-control-layers label { color: var(--text); }
+  .leaflet-control-layers input { appearance: none; -webkit-appearance: none; width: 10px; height: 10px; margin: 0 8px 0 3px;
+    transform: rotate(45deg); border: 1px solid var(--gold-dim); background: rgba(0, 0, 0, 0.3); cursor: pointer; vertical-align: 1px; }
+  .leaflet-control-layers input:checked { background: var(--gold); border-color: var(--gold-bright); box-shadow: 0 0 8px rgba(220, 183, 107, 0.65); }
+  .leaflet-control-layers input:focus-visible { outline: 1px solid var(--gold-bright); outline-offset: 3px; }
+  .leaflet-bar { border: 0 !important; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45) !important; }
+  .leaflet-bar a { background: var(--panel); color: var(--gold); border: 1px solid var(--gold-dim) !important; border-radius: 0 !important;
+    font: 500 20px/28px var(--serif); margin-bottom: 4px; }
+  .leaflet-bar a:hover { background: var(--raised); color: var(--gold-bright); }
+  .leaflet-control-attribution { background: rgba(18, 14, 25, 0.75) !important; color: var(--muted) !important; font: 500 12px var(--serif); }
+  .leaflet-control-scale-line { background: rgba(18, 14, 25, 0.7); color: var(--text); border: 1px solid var(--gold-dim); border-top: 0;
+    font: 500 12px var(--serif); font-variant-numeric: lining-nums; padding: 0 6px; }
+  .leaflet-control-scale { margin-bottom: 8px !important; margin-right: 12px !important; }
+  #compass { position: absolute; z-index: 999; right: 20px; bottom: 64px; width: 112px; height: 112px; pointer-events: none; }
+  #compass::before { content: ""; position: absolute; inset: -16px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(10, 8, 14, 0.72) 30%, rgba(10, 8, 14, 0) 70%); }
+  #compass img { position: relative; width: 100%; height: 100%; display: block; filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.8)); }
+  #compass span { position: absolute; left: 50%; top: -15px; transform: translateX(-50%); font: 700 14px var(--caps); letter-spacing: 0.05em; color: var(--gold-bright);
+    text-shadow: 0 0 4px #000, 0 0 8px #000; }
+  @media (prefers-reduced-motion: reduce) {
+    .player-icon .arrow, .leaflet-container:not(.leaflet-zoom-anim) .player-icon { transition: none; }
+  }
+  /* Phones: the clock shrinks to the time, the marker panel becomes a sheet at the bottom. */
+  @media (max-width: 600px) {
+    .card { border-width: 14px; border-image-width: 14px; }
+    #right { top: 8px; right: 8px; width: 180px; max-width: 48vw; }
+    #clock { min-width: 0; padding: 0 2px; }
+    #clock h2, #clock .row { display: none; }
+    #clock .big { font-size: 26px; margin: 0; }
+    #left { top: 8px; left: 50px; right: calc(48vw + 16px); max-height: none; }
+    #players { min-width: 0; max-width: none; width: 100%; }
+    #search { width: 100%; }
+    #players li { font-size: 15px; flex-wrap: wrap; column-gap: 8px; row-gap: 0; }
+    #players li .coords { grid-column: 2 / 5; grid-row: 2; font-size: 13px; padding-left: 0; }
+    #left #pois { position: fixed; left: 0; right: 0; bottom: 38px; width: auto; max-height: 46vh; z-index: 1001; }
+    body:has(#pois:not(.hidden)) .leaflet-control-layers { display: none; }   /* the sheet covers that corner */
+    #compass { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<dialog id="characterDialog" aria-label="Ficha do personagem">
+  <button type="button" id="closeCharacter" aria-label="Fechar ficha">Fechar ×</button>
+  <p id="characterLoading" role="status" hidden>Loading character sheet…</p>
+  <iframe id="characterFrame" title="Ficha do personagem" sandbox="allow-scripts allow-downloads"></iframe>
+</dialog>
+<div id="left">
+
+  <div id="search" class="card"><input id="searchBox" type="search" placeholder="Find a place, player or item…" autocomplete="off"
+    aria-label="Find a place, region or player" aria-controls="searchResults"><ul id="searchResults" role="listbox"></ul></div>
+  <button id="poiToggle" type="button" aria-expanded="false" aria-controls="pois">Markers</button>
+  <div id="pois" class="card hidden"><h2>Markers <span class="actions"><button id="poiAll" type="button">all / none</button><button id="poiClose" type="button" aria-label="Close the marker panel">✕</button></span></h2><div id="poiList"></div></div>
+</div>
+<div id="right">
+<div id="clock" class="card">
+  <h2>Time</h2>
+  <div class="big" id="gameTime">--:--</div>
+  <div class="row"><span>In game</span><b id="dayNight">–</b></div>
+  <div class="row"><span>Real time</span><b id="realTime">--:--</b></div>
+  <div class="row"><span>Weather</span><b id="weather">–</b></div>
+  <div class="row"><span>Flame level</span><b id="flameLevel">–</b></div>
+</div>
+  <div id="players" class="card"><h2>Players</h2><ul id="playerList"><li class="placeholder">Connecting…</li></ul></div>
+</div>
+<div id="status" class="card">connecting…</div>
+<div id="compass" aria-hidden="true"><span>N</span><img alt="" fetchpriority="low" decoding="async"></div>
+<div id="tileNote" class="card"></div>
+<button id="calibToggle" type="button">Calibrate</button>
+<div id="calib" class="card">
+  <h2>Calibration</h2>
+  <p>Stand on a spot you can find on the map, pick yourself, then click that spot on the map. Walk to a
+    second spot at least 300 m away to the side AND up or down the map, and click it there. Copy the
+    result into <code>livemap/maps.json</code>.</p>
+  <label>Player <select id="calibPlayer"></select></label>
+  <div id="calibPoints"></div>
+  <textarea id="calibOut" readonly></textarea>
+  <button id="calibReset" type="button">Reset points</button>
+  <button id="calibClose" type="button">Close</button>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(() => {
+  const browserLanguage = (() => {
+    try { return navigator.languages?.[0] || navigator.language || ""; } catch { return ""; }
+  })();
+  const language = typeof browserLanguage === "string" && /^pt(?:-|$)/i.test(browserLanguage) ? "pt-BR" : "en";
+  const pt = {
+    "Language":"Idioma", "Markers":"Marcadores", "all / none":"todos / nenhum",
+    "Time":"Horário", "In game":"No jogo", "Real time":"Hora real", "Weather":"Clima", "Flame level":"Nível da Chama",
+    "Players online":"Jogadores online", "Players offline":"Jogadores offline", "Player":"Jogador", "Players":"Jogadores",
+    "No players recorded":"Nenhum jogador registrado", "Character sheet unavailable":"Ficha do personagem indisponível",
+    "Loading character sheet…":"Carregando ficha do personagem…",
+    "Connecting…":"Conectando…", "connecting…":"conectando…", "No one online":"Ninguém online",
+    "No offline players":"Nenhum jogador offline", "live":"ao vivo", "connection lost, retrying…":"conexão perdida, tentando novamente…",
+    "Find a place, player or item…":"Buscar local, jogador ou item…", "Find a place, region or player":"Buscar local, região ou jogador",
+    "Close the marker panel":"Fechar os marcadores", "Click to follow, click again to stop":"Clique para acompanhar; clique novamente para parar",
+    "Drag to move, double-click to put it back":"Arraste para mover; clique duas vezes para restaurar",
+    "Calibrate":"Calibrar", "Calibration":"Calibração", "Reset points":"Redefinir pontos", "Close":"Fechar",
+    "Places":"Locais", "Bases":"Bases", "Finds":"Descobertas", "Loot":"Saques", "Overlays":"Camadas",
+    "Discovered":"Descobertos", "Not discovered":"Não descobertos", "All places":"Todos os locais",
+    "Hide looted chests":"Ocultar baús saqueados", "Rain and snow":"Chuva e neve", "Deadly shroud":"Mortalha mortal",
+    "Fog of war (by the player chosen below)":"Névoa de exploração (do jogador selecionado abaixo)",
+    "Region names":"Nomes das regiões", "Place names":"Nomes dos locais", "Creatures near players":"Criaturas próximas dos jogadores",
+    "by anyone":"por qualquer jogador", "by ":"por ", " (offline)":" (offline)",
+    "Needs the server part 1.6.":"Requer dados de exploração do Livemap.",
+    "Nobody has played since the update.":"Nenhum jogador registrado desde a atualização.",
+    "Day":"Dia", "Night":"Noite", "Clear":"Céu limpo", "Rain":"Chuva", "Light rain":"Chuva leve",
+    "Snow":"Neve", "Light snow":"Neve leve", "Blizzard":"Nevasca", "Overcast":"Encoberto",
+    "Cloudy":"Nublado", "Partly cloudy":"Parcialmente nublado", "rain zones":"áreas de chuva", "rain zone":"área de chuva",
+    "ending":"terminando", "about {count} min left":"cerca de {count} min restantes",
+    "Shroud level {level}":"Mortalha nível {level}", " · deadly at Flame level {level}":" · mortal no nível {level} da Chama",
+    " · Flame level {level} is enough":" · nível {level} da Chama é suficiente",
+    "here":"aqui", "always":"sempre",
+    "Ancient Spires":"Torres Ancestrais", "Fast travel points":"Pontos de viagem rápida", "Starting Flame Altar":"Altar da Chama inicial",
+    "Flame Shrines & Temples":"Santuários e Templos da Chama", "Elixir Wells & Shroud Roots":"Poços de Elixir e Raízes da Mortalha",
+    "Towns & ruins":"Cidades e ruínas", "Districts & special buildings":"Distritos e construções especiais",
+    "Region entrances":"Entradas das regiões", "Landmarks":"Pontos de referência", "Dungeons":"Masmorras",
+    "Night Temples":"Templos Noturnos", "Fallen Crypts":"Criptas Caídas", "Vaults & hidden places":"Câmaras e locais ocultos",
+    "Caves":"Cavernas", "Mines":"Minas", "Gem forge stations":"Forjas de gemas", "Ancient obelisks":"Obeliscos Ancestrais",
+    "Hidden graves":"Sepulturas ocultas", "Shroud nests":"Ninhos da Mortalha", "Enemy camps":"Acampamentos inimigos",
+    "Boss unlocks":"Desbloqueios de chefes", "Camps & points of interest":"Acampamentos e pontos de interesse", "Farms & fields":"Fazendas e campos",
+    "Quest hint areas":"Áreas de pistas de missões", "Gold chests":"Baús de ouro", "Silver chests":"Baús de prata",
+    "Wooden chests":"Baús de madeira", "Sarcophagi":"Sarcófagos", "Treasure fishing spots":"Pontos de pesca de tesouros",
+    "Looted chests":"Baús saqueados", "Flame Altars":"Altares da Chama", "Locks":"Fechaduras", "Switches":"Interruptores",
+    "Barriers":"Barreiras", "Character sheet":"Ficha do personagem", "Open character sheet":"Abrir ficha do personagem",
+    "Close character sheet":"Fechar ficha", "Text unavailable.":"Texto indisponível.", "Notes and lore":"Bilhetes e lore",
+    "killed":"morto em combate", "fell":"queda", "shroud":"Mortalha", "drowned":"afogamento",
+    " death":" morte", " deaths":" mortes", " · last ":" · última: ", "just now":"agora",
+    "{count} min ago":"há {count} min", "{count} h ago":"há {count} h", "{count} days ago":"há {count} dias",
+    "Deadly shroud (needs the server part 1.4)":"Mortalha mortal (requer dados do servidor)",
+    "Towns, dungeons, camps ... use the game's own state; everything else counts within 300 m of where that player has been.":"Cidades, masmorras e acampamentos usam o estado do jogo; os demais locais contam em um raio de 300 m do caminho explorado pelo jogador.",
+    "Where to get {item}":"Onde obter {item}", "Deadly shroud (above Flame level {level})":"Mortalha mortal (acima do nível {level} da Chama)",
+    "{count} point(s) on {style}":"{count} ponto(s) em {style}",
+    "Stand on a spot you can find on the map, pick yourself, then click that spot on the map. Walk to a second spot at least 300 m away to the side AND up or down the map, and click it there. Copy the result into":"Fique em um ponto identificável no mapa, selecione seu jogador e clique nesse ponto. Vá a outro ponto a pelo menos 300 m de distância, deslocando-se nos dois eixos do mapa, e clique nele. Copie o resultado para"
+  };
+  function t(message, values = {}) {
+    let result = language === "pt-BR" ? pt[message] || message : message;
+    for (const [key, value] of Object.entries(values)) result = result.replaceAll("{" + key + "}", String(value));
+    return result;
+  }
+  function translateUi(root) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (node.parentElement.closest("script,style,#discBy,#calibPlayer")) continue;
+      const original = node.textContent.trim().replace(/\s+/g, " ");
+      if (original) node.textContent = node.textContent.replace(node.textContent.trim(), t(original));
+    }
+    for (const element of [root, ...root.querySelectorAll("[placeholder],[title],[aria-label]")]) {
+      for (const attribute of ["placeholder", "title", "aria-label"])
+        if (element.hasAttribute(attribute)) element.setAttribute(attribute, t(element.getAttribute(attribute)));
+    }
+  }
+  document.documentElement.lang = language;
+  for (const selector of ["#left", "#clock", "#players h2", "#calib", "#calibToggle", "#status", "#characterDialog"])
+    translateUi(document.querySelector(selector));
+  const key = new URLSearchParams(location.search).get("key") || "";
+  const q = key ? "?key=" + encodeURIComponent(key) : "";
+  // Forward the key to the page's assets when the link includes one.
+  for (const n of ["frame", "pattern", "separator", "hairline", "player"]) {
+    document.documentElement.style.setProperty("--ui-" + n, 'url("ui/' + n + ".webp" + q + '")');
+  }
+  document.querySelector("#compass img").src = "ui/compass.webp" + q;
+  const fontReady = window.FontFace ? (() => {
+    const f = new FontFace("Alegreya", 'url("fonts/alegreya-latin.woff2' + q + '") format("woff2")', { weight: "400 900", display: "swap" });
+    document.fonts.add(f);
+    return f.load();
+  })() : Promise.reject();
+  // One colour per player online, up to the game's 16 (the first free one when someone joins).
+  const colors = ["#f2b766", "#6fd3c7", "#ff8fb1", "#9fd36f", "#b49bff", "#ffd36f", "#6fb4ff", "#ff9f6f",
+    "#e8e4d8", "#d97a9e", "#4fb38a", "#c9a0ff", "#a8d8ff", "#d8c06a", "#ff7a6a", "#8fa8ff"];
+  const colorOf = new Map();   // entity -> colour index
+  function playerColor(entity) {
+    if (!colorOf.has(entity)) {
+      const used = new Set(colorOf.values());
+      let i = 0;
+      while (used.has(i) && i < colors.length - 1) i++;
+      colorOf.set(entity, i);
+    }
+    return colors[colorOf.get(entity)];
+  }
+  // The map works in world metres: latlng = [z, x]. The world is worldSize x worldSize metres
+  // (10240 in Enshrouded); north (+z) is up. Each map image covers `bounds` of the world.
+  const map = L.map("map", { crs: L.CRS.Simple, minZoom: -5, maxZoom: 3, zoomSnap: 0.25, attributionControl: true });
+  map.attributionControl.setPrefix("").addAttribution("Map art © Keen Games");
+  L.control.scale({ position: "bottomright", imperial: false, maxWidth: 140 }).addTo(map);
+  const markers = new Map();
+  let lastState = null, config = null, currentStyle = null;
+  let showWeather = (() => { try { return localStorage.getItem("livemap.weather") !== "0"; } catch { return true; } })();
+  let showShroud = (() => { try { return localStorage.getItem("livemap.shroud") !== "0"; } catch { return true; } })();
+  let showFog = (() => { try { return localStorage.getItem("livemap.fog") === "1"; } catch { return false; } })();
+  let showRegions = (() => { try { return localStorage.getItem("livemap.regions") !== "0"; } catch { return true; } })();
+  let showPlaces = (() => { try { return localStorage.getItem("livemap.places") !== "0"; } catch { return true; } })();
+  const layers = {};
+
+  function toLatLng(pos) { return L.latLng(pos[2], pos[0]); }
+
+  // Player arrows: the orientation quaternion from the server, turned into a compass heading.
+  // HEADING.axis says which model axis is "forward" (a trailing "m" would mirror x). Measured
+  // 2026-10-21 against the player's movement over the ground: 11 m at -84 degrees while the
+  // quaternion gave -86.6 degrees for "z+", so z+ it is. Other values from the console:
+  // livemap.heading("z-"), ("x+"), ("z+m") ...
+  const HEADING = { axis: (() => { try { return localStorage.getItem("livemap.headingAxis") || "z+"; } catch { return "z+"; } })() };
+  function headingDeg(rot) {
+    if (!rot || rot.length !== 4) return null;
+    const [x, y, z, w] = rot;
+    const n = x * x + y * y + z * z + w * w;
+    if (!(n > 0.9 && n < 1.1)) return null;
+    // forward vector = q * axis * q^-1, for axis z+ and x+
+    let fx, fz;
+    if (HEADING.axis[0] === "z") { fx = 2 * (x * z + w * y); fz = 1 - 2 * (x * x + y * y); }
+    else { fx = 1 - 2 * (y * y + z * z); fz = 2 * (x * z - w * y); }
+    if (HEADING.axis[1] === "-") { fx = -fx; fz = -fz; }
+    if (HEADING.axis.endsWith("m")) fx = -fx;
+    if (Math.abs(fx) + Math.abs(fz) < 1e-6) return null;
+    return Math.atan2(fx, fz) * 180 / Math.PI;  // 0 = north (+z, up on the map), clockwise
+  }
+  // The game's own player arrow (ui/player.webp points east; CSS turns it north) in the player's
+  // colour over a halo of it; a diamond until the first heading is known.
+  function playerIcon(color) {
+    return L.divIcon({ className: "player-icon", iconSize: [28, 28], iconAnchor: [14, 14],
+      html: '<div class="halo" style="--c:' + color + '"></div><div class="arrow" style="display:none"><i style="--c:' + color + '"></i></div>'
+        + '<div class="dot" style="background:' + color + '"></div>' });
+  }
+
+  // Keeps fetching until it succeeds (every 5 s), so a page opened during a server restart
+  // still gets its map, markers and icons once the server is back.
+  async function fetchJsonRetry(url, fallback) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const r = await fetch(url);
+        if (r.ok) return await r.json();
+        if (r.status === 403 || r.status === 404) return fallback;  // wrong key or missing file: no point retrying
+      } catch {}
+      await new Promise(res => setTimeout(res, 5000));
+    }
+  }
+
+
+  fetchJsonRetry("maps.json" + q, null).then(c => {
+    config = c || { worldSize: 10240, maps: [{ name: "Map", file: "map.png" }] };
+    const size = config.worldSize || 10240;
+    for (const m of config.maps) {
+      const b = m.bounds || [[0, 0], [size, size]];  // [[zMin, xMin], [zMax, xMax]]
+      let layer;
+      if (m.tiles) {
+        // Tiles from tools/render_map.py: at zoom z one metre is 2^z pixels, file names use
+        // Leaflet's tile coordinates, so the plain URL template fits.
+        layer = L.tileLayer(m.tiles + q, { tileSize: m.tileSize || 512, bounds: b, noWrap: true,
+          minZoom: map.getMinZoom(), maxZoom: map.getMaxZoom(),
+          minNativeZoom: m.minNativeZoom ?? -5, maxNativeZoom: m.maxNativeZoom ?? 0 });
+        // Tiles that are not there (a folder from another version, e.g. only the HD file
+        // unzipped over an old install) leave an empty map: say so instead.
+        let loaded = 0, failed = 0;
+        const note = document.getElementById("tileNote");
+        layer.on("tileload", () => { loaded++; note.classList.remove("open"); });
+        layer.on("tileerror", () => {
+          if (++failed < 3 || loaded) return;
+          note.textContent = "The map pictures of \"" + m.name + "\" are missing (livemap/" + m.tiles.split("/")[0]
+            + "). Unzip the main file of the Live Map over the install, then reload.";
+          note.classList.add("open");
+        });
+        layer.on("remove", () => note.classList.remove("open"));
+      } else {
+        // With a preview, the small image shows first; the full one is fetched after it and swapped in.
+        layer = L.imageOverlay((m.preview || m.file) + q, b);
+        if (m.preview) layer.once("load", () => { const full = new Image(); full.onload = () => layer.setUrl(m.file + q); full.src = m.file + q; });
+        layer.origBounds = L.latLngBounds(b);  // for "Reset points" after a calibration try
+      }
+      layer.styleName = m.name;
+      layer.background = m.background || "";
+      layers[m.name] = layer;
+    }
+    const showBackground = () => { map.getContainer().style.background = layers[currentStyle].background; };
+    const saved = (() => { try { return localStorage.getItem("livemap.style"); } catch { return null; } })();
+    currentStyle = layers[saved] ? saved : config.maps[0].name;
+    layers[currentStyle].addTo(map);
+    showBackground();
+    if (config.maps.length > 1) {
+      // The style switch sits bottom left; the left column (marker panel) stops above it.
+      const styles = L.control.layers(layers, null, { position: "bottomleft", collapsed: false }).addTo(map);
+      const reserve = () => document.documentElement.style.setProperty("--left-bottom",
+        Math.round(innerHeight - styles.getContainer().getBoundingClientRect().top + 8) + "px");
+      reserve();
+      addEventListener("resize", reserve);
+    }
+    map.on("baselayerchange", e => {
+      currentStyle = e.name;
+      showBackground();
+      try { localStorage.setItem("livemap.style", e.name); } catch {}
+    });
+    const world = [[0, 0], [size, size]];
+    map.fitBounds(world);
+    map.setMaxBounds(L.latLngBounds(world).pad(0.2));
+    showMarks();
+  });
+
+  // Points of interest (web/pois.json, built by tools/extract_pois.py). All points are drawn on
+  // ONE canvas over the map, no DOM node per point, so thousands of chests pan and zoom
+  // smoothly. Icons are pre-rendered with their shadow per zoom step; hover finds the nearest
+  // point and shows a single tooltip.
+  const LABEL_ONLY = new Set(["district", "region", "landmark"]);
+  const GLYPHS = {
+    chest: '<path d="M3 9a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v2H3z" fill="COLOR" stroke="#120e18" stroke-width="1.5"/>'
+      + '<path d="M3 11h18v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" fill="COLOR" stroke="#120e18" stroke-width="1.5"/>'
+      + '<rect x="10" y="9.5" width="4" height="4" rx="0.8" fill="#120e18"/>',
+    sarcophagus: '<path d="M8 3h8l3 6-2 12H7L5 9z" fill="COLOR" stroke="#120e18" stroke-width="1.5"/>'
+      + '<path d="M12 7v9M9 10h6" stroke="#120e18" stroke-width="1.5"/>',
+    fishing: '<path d="M14 3v8a4 4 0 1 1-8 0h2a2 2 0 1 0 4 0V3z" fill="COLOR" stroke="#120e18" stroke-width="1.2"/>'
+      + '<circle cx="14" cy="3" r="2" fill="COLOR" stroke="#120e18" stroke-width="1.2"/>',
+    fasttravel: '<path d="M12 2l9 10-9 10L3 12z" fill="#2a2038" stroke="COLOR" stroke-width="2"/>'
+      + '<path d="M12 7l4 5h-2.5v5h-3v-5H8z" fill="COLOR"/>',
+    ore: '<path d="M4 20 L15 9" stroke="#120e18" stroke-width="5" stroke-linecap="round"/>'
+      + '<path d="M4 20 L15 9" stroke="COLOR" stroke-width="2.5" stroke-linecap="round"/>'
+      + '<path d="M9 5c4-2 8-2 12 2-3 0-6 1-8 3-1-2-2-3-4-5z" fill="COLOR" stroke="#120e18" stroke-width="1.5" stroke-linejoin="round"/>',
+    lock_closed: '<path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="#120e18" stroke-width="4.5"/>'
+      + '<path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="COLOR" stroke-width="2.2"/>'
+      + '<rect x="5" y="11" width="14" height="10" rx="1.5" fill="COLOR" stroke="#120e18" stroke-width="1.5"/>'
+      + '<circle cx="12" cy="15.5" r="1.6" fill="#120e18"/>',
+    lock_open: '<path d="M8 11V7a4 4 0 0 1 7.6-1.8" fill="none" stroke="#120e18" stroke-width="4.5"/>'
+      + '<path d="M8 11V7a4 4 0 0 1 7.6-1.8" fill="none" stroke="COLOR" stroke-width="2.2"/>'
+      + '<rect x="5" y="11" width="14" height="10" rx="1.5" fill="COLOR" stroke="#120e18" stroke-width="1.5"/>'
+      + '<path d="M8.5 16l2.3 2.3 4.7-4.6" fill="none" stroke="#120e18" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+    looted: '<path d="M3 9a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v2H3z" fill="#6b6b75" stroke="#120e18" stroke-width="1.5"/>'
+      + '<path d="M3 11h18v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" fill="#6b6b75" stroke="#120e18" stroke-width="1.5"/>'
+      + '<path d="M7 13.5l3.5 3.5L17 10" fill="none" stroke="#9fd36f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>',
+  };
+  // Deposit icons: a round plate with a ring in the deposit's colour and a glyph per kind of
+  // deposit. FILL = deposit colour, RING = ring colour, OUT = glyph outline (light on dark
+  // deposits so coal or tar still read on the dark plate).
+  const ORE_GLYPHS = {
+    nugget: '<path d="M6.5 14.5 8 9.5l4-2.6 4.6 1.6 1.4 4.5-2 3.5-5.2 1z" fill="FILL" stroke="OUT" stroke-width="1.2" stroke-linejoin="round"/>'
+      + '<path d="M8 9.5l3 3 5.6-4M11 12.5l-1 4.6M11 12.5l5.8 4.3" fill="none" stroke="OUT" stroke-opacity=".45" stroke-width=".9"/>'
+      + '<path d="M9.2 9.7l2.6-1.7" stroke="#fff" stroke-opacity=".75" stroke-width="1.2" stroke-linecap="round"/>',
+    crystal: '<path d="M12 4.8l2.3 3.1v8.8H9.7V7.9z" fill="FILL" stroke="OUT" stroke-width="1.1" stroke-linejoin="round"/>'
+      + '<path d="M7.9 8.8l1.8 2.4v5.5H6.1v-5.5z" fill="FILL" stroke="OUT" stroke-width="1.1" stroke-linejoin="round"/>'
+      + '<path d="M16.1 8.3l1.8 2.4v6H14.3v-6z" fill="FILL" stroke="OUT" stroke-width="1.1" stroke-linejoin="round"/>'
+      + '<path d="M11.1 8.4v7" stroke="#fff" stroke-opacity=".7" stroke-width="1.1" stroke-linecap="round"/>'
+      + '<path d="M5.4 17.6h13.2" stroke="OUT" stroke-width="1.4" stroke-linecap="round"/>',
+    gem: '<path d="M6.6 9.6 9.4 6.6h5.2l2.8 3L12 17.6z" fill="FILL" stroke="OUT" stroke-width="1.2" stroke-linejoin="round"/>'
+      + '<path d="M6.6 9.6h10.8M9.4 6.6l1.2 3L12 17.6M14.6 6.6l-1.2 3L12 17.6" fill="none" stroke="OUT" stroke-opacity=".5" stroke-width=".9"/>'
+      + '<path d="M9.6 8.2l1.6-.9" stroke="#fff" stroke-opacity=".85" stroke-width="1.1" stroke-linecap="round"/>',
+    cubes: '<rect x="6" y="11.2" width="5.4" height="5.4" rx=".9" fill="FILL" stroke="OUT" stroke-width="1.1"/>'
+      + '<rect x="12.6" y="11.2" width="5.4" height="5.4" rx=".9" fill="FILL" stroke="OUT" stroke-width="1.1"/>'
+      + '<rect x="9.3" y="5.6" width="5.4" height="5.4" rx=".9" fill="FILL" stroke="OUT" stroke-width="1.1"/>'
+      + '<path d="M10.5 7h2M7.2 12.6h1.8M13.8 12.6h1.8" stroke="#fff" stroke-opacity=".8" stroke-width="1" stroke-linecap="round"/>',
+    shard: '<path d="M7.6 17.8 9.8 7.2l6.8-1.6-2 6.2 1.6 1.4-5.8 4.6z" fill="FILL" stroke="OUT" stroke-width="1.2" stroke-linejoin="round"/>'
+      + '<path d="M9.8 7.2l4.8 4.6M14.6 11.8l-4.2 6" fill="none" stroke="OUT" stroke-opacity=".45" stroke-width=".9"/>'
+      + '<path d="M10.7 8 15 7" stroke="#fff" stroke-opacity=".8" stroke-width="1.1" stroke-linecap="round"/>',
+    lump: '<path d="M6.3 13.2c0-3.1 2.6-5.6 5.7-5.6 2 0 3.1 1 4.1 1.8 1.5 1.1 2 2.6 1.7 4.1-.4 2.4-2.8 3.8-5.8 3.8-3.6 0-5.7-1.3-5.7-4.1z" fill="FILL" stroke="OUT" stroke-width="1.2"/>'
+      + '<path d="M9 10.6l1.8-1.1M14.6 12.4l.9.4" stroke="#fff" stroke-opacity=".75" stroke-width="1.1" stroke-linecap="round"/>',
+    drop: '<path d="M12 5.2c2.9 3.7 4.7 6.2 4.7 8.3a4.7 4.7 0 0 1-9.4 0c0-2.1 1.8-4.6 4.7-8.3z" fill="FILL" stroke="OUT" stroke-width="1.2"/>'
+      + '<path d="M9.9 13.3c0-1.2.6-2.5 1.6-3.8" fill="none" stroke="#fff" stroke-opacity=".8" stroke-width="1.2" stroke-linecap="round"/>',
+    pile: '<path d="M5.2 17.4c1-4.4 3.6-7.4 6.8-7.4s5.8 3 6.8 7.4z" fill="FILL" stroke="OUT" stroke-width="1.2" stroke-linejoin="round"/>'
+      + '<circle cx="10" cy="13.2" r=".95" fill="OUT" fill-opacity=".5"/><circle cx="13.6" cy="12.4" r=".95" fill="OUT" fill-opacity=".5"/>'
+      + '<circle cx="12.4" cy="15.4" r=".95" fill="OUT" fill-opacity=".5"/><circle cx="12" cy="7.2" r="1.3" fill="FILL" stroke="OUT" stroke-width=".9"/>',
+    block: '<path d="M6.4 9.4 12 6.8l5.6 2.6v6.2L12 18.2l-5.6-2.6z" fill="FILL" stroke="OUT" stroke-width="1.2" stroke-linejoin="round"/>'
+      + '<path d="M6.4 9.4 12 12l5.6-2.6M12 12v6.2" fill="none" stroke="OUT" stroke-opacity=".55" stroke-width=".9"/>'
+      + '<path d="M8 11.6c1.4 1 1.9 2.4 1.4 4M14 12.6c.9.5 1.6 1.4 1.8 2.6" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width=".9" stroke-linecap="round"/>',
+    shell: '<path d="M12 17.8 5.8 10.6c2-3.1 4.1-4.2 6.2-4.2s4.2 1.1 6.2 4.2z" fill="FILL" stroke="OUT" stroke-width="1.2" stroke-linejoin="round"/>'
+      + '<path d="M12 17.8 8.9 7.9M12 17.8V6.4M12 17.8l3.1-9.9" fill="none" stroke="OUT" stroke-opacity=".45" stroke-width=".9"/>'
+      + '<path d="M8.6 9.6c1-1 2-1.5 3-1.6" fill="none" stroke="#fff" stroke-opacity=".8" stroke-width="1" stroke-linecap="round"/>',
+  };
+  // Ore sorts: item debug name -> label, colour and glyph (anything else gets a generic entry).
+  const ORE_SORTS = {
+    Material_T2_Ore_Copper: ["Copper ore", "#e08a4a"], Material_T3_Ore_Tin: ["Tin ore", "#b8c4cc"],
+    Material_T4_Ore_Iron: ["Iron ore", "#9a7b6a"], Material_T5_Silver_Ore: ["Silver ore", "#dfe6ee"],
+    Material_T6_Gold_Ore: ["Gold ore", "#ffd24a"], Material_T7_Celesthium_Ore: ["Celesthium ore", "#8fd8ff"],
+    Material_T4_Sulfur: ["Sulfur", "#e6d94a"], Material_T1_Salt: ["Salt", "#f3f0e8"],
+    Material_T5_Obsidian: ["Obsidian", "#5b4b7a"], Material_T2_Amber: ["Amber", "#f0a830"], Material_T2_Clay: ["Clay", "#c27a52"],
+    Material_T1_KryptCrystal: ["Krypt crystal", "#b49bff"], Material_T5_Coal: ["Coal", "#4a4a52"],
+    Material_T1_Stone_Flint: ["Flint", "#8a8f99"], Material_T1_Charcoal: ["Charcoal", "#555"],
+    Material_T1_Red_Marble_Fragment: ["Red marble", "#c96f5f"], Material_T1_Tar: ["Tar", "#3a3530"],
+    Material_T4_Lapislazuli: ["Lapis lazuli", "#3f6fd8"], Material_T5_Amethyst: ["Amethyst", "#a970e0"],
+    Material_T6_Aquamarine: ["Aquamarine", "#6fe0d8"], Material_T6_MotherOfPearl: ["Mother of pearl", "#efe6f4"],
+    Material_T7_Diamond: ["Diamond", "#d8f4ff"], Material_T7_Moonstone: ["Moonstone", "#c8d0ff"],
+  };
+  const ORE_FAMILY = {
+    Material_T2_Ore_Copper: "nugget", Material_T3_Ore_Tin: "nugget", Material_T4_Ore_Iron: "nugget",
+    Material_T5_Silver_Ore: "nugget", Material_T6_Gold_Ore: "nugget", Material_T7_Celesthium_Ore: "nugget",
+    Material_T1_KryptCrystal: "crystal", Material_T5_Amethyst: "crystal", Material_T6_Aquamarine: "crystal",
+    Material_T7_Moonstone: "crystal", Material_T4_Lapislazuli: "crystal", Material_T7_Diamond: "gem",
+    Material_T1_Salt: "cubes", Material_T1_Stone_Flint: "shard", Material_T5_Obsidian: "shard",
+    Material_T5_Coal: "lump", Material_T1_Charcoal: "lump", Material_T2_Clay: "lump", Material_T2_Amber: "drop", Material_T1_Tar: "drop",
+    Material_T4_Sulfur: "pile", Material_T1_Red_Marble_Fragment: "block", Material_T6_MotherOfPearl: "shell",
+  };
+  function oreLabel(sort) {
+    if (!sort) return ["Ore (sort unknown)", "#c9a978"];
+    if (ORE_SORTS[sort]) return ORE_SORTS[sort];
+    return [sort.replace(/^Material_T\d+_/, "").replace(/_/g, " "), "#c9a978"];
+  }
+  function luminance(hex) {
+    const n = parseInt(hex.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  }
+  // The full deposit icon (plate, ring, glyph) as a data URL.
+  function lighten(hex, t) {
+    const n = parseInt(hex.slice(1), 16);
+    const mix = v => Math.round(v + (255 - v) * t).toString(16).padStart(2, "0");
+    return "#" + mix((n >> 16) & 255) + mix((n >> 8) & 255) + mix(n & 255);
+  }
+  function oreIconUrl(sort, color) {
+    // Dark deposits (coal, tar, obsidian) get a lighter ring in their own hue and a light outline.
+    const dark = luminance(color) < 0.36;
+    const ring = dark ? lighten(color, 0.45) : color, out = dark ? "#e4def0" : "#0d0a12";
+    const glyph = ORE_GLYPHS[ORE_FAMILY[sort] || "nugget"].replace(/FILL/g, color).replace(/RING/g, ring).replace(/OUT/g, out);
+    const svg = '<circle cx="12" cy="12" r="11.3" fill="none" stroke="#fff" stroke-width="1.3"/>'
+      + '<circle cx="12" cy="12" r="10.4" fill="#1b1524" stroke="' + ring + '" stroke-width="2"/>'
+      + '<g transform="translate(12 12) scale(1.22) translate(-12 -11.6)">' + glyph + '</g>';
+    return "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">' + svg + "</svg>");
+  }
+  function fmtDay(unix) { const d = new Date(unix * 1000); return d.getDate() + "." + (d.getMonth() + 1) + "."; }
+  function fmtAgo(unix) {
+    const min = Math.max(0, Math.round((Date.now() / 1000 - unix) / 60));
+    return min < 90 ? t("{count} min ago", {count: min}) : t("{count} h ago", {count: Math.round(min / 60)});
+  }
+  // A looted chest fills up again after `chestRefillMinutes` (maps.json; default 30, what players
+  // see on dedicated servers; 0 = never), except inside a Flame Altar's build zone, where the
+  // game does not refill chests. Returns null once it should be full again.
+  function chestRefillMinutes() {
+    const v = config ? Number(config.chestRefillMinutes) : NaN;
+    return Number.isFinite(v) && v >= 0 ? v : 30;
+  }
+  function inBuildZone(x, z) {
+    const list = basesData && basesData.bases;
+    return !!list && list.some(b => b.size && Math.abs(x - b.x) <= b.size[0] && Math.abs(z - b.z) <= b.size[2]);
+  }
+  function lootState(c) {
+    const minutes = chestRefillMinutes();
+    if (minutes === 0 || inBuildZone(c.x, c.z)) return { never: true };
+    const left = c.at + minutes * 60 - Date.now() / 1000;
+    return left > 0 ? { left: Math.ceil(left / 60) } : null;
+  }
+  let iconFiles = {}, poiData = null;
+  let hideLooted = (() => { try { return localStorage.getItem("livemap.hideLooted") === "1"; } catch { return false; } })();
+  const poiEnabled = {};   // category id -> shown
+  const poiImages = {};    // category id -> {img, base}
+  const poiPanel = document.getElementById("pois");
+  const poiToggle = document.getElementById("poiToggle");
+  const setPoiOpen = open => {
+    poiPanel.classList.toggle("hidden", !open);
+    poiToggle.setAttribute("aria-expanded", String(open));
+    if (open && poiPanel.classList.contains("moved")) place(poiPanel, readPos("pois"));   // measure it now that it shows
+  };
+  poiToggle.onclick = () => setPoiOpen(poiPanel.classList.contains("hidden"));
+  document.getElementById("poiClose").onclick = () => { setPoiOpen(false); poiToggle.focus(); };
+  function poiPrefs() { try { return JSON.parse(localStorage.getItem("livemap.pois") || "{}"); } catch { return {}; } }
+  function savePoiPrefs(p) { try { localStorage.setItem("livemap.pois", JSON.stringify(p)); } catch {} }
+
+  function loadImage(url, onload) {
+    const img = new Image();
+    img.onload = onload;
+    img.onerror = () => setTimeout(() => { img.src = url + (url.includes("?") ? "&" : "?") + "r=" + Date.now(); }, 5000);
+    img.src = url;
+    return img;
+  }
+  function glyphUrl(svg, color) {
+    return "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">' + svg.replace(/COLOR/g, color) + "</svg>");
+  }
+  function poiScale() { return Math.min(1.5, Math.max(0.65, Math.pow(2, map.getZoom() * 0.4))); }
+
+  const PoiLayer = L.Layer.extend({
+    onAdd(m) {
+      this._canvas = L.DomUtil.create("canvas", "poi-canvas leaflet-layer");
+      this._ctx = this._canvas.getContext("2d");
+      if (!this._ctx) mapError("markers need the canvas, which this browser blocks (Brave Shields: allow fingerprinting for this site)");
+      m.getPanes().overlayPane.appendChild(this._canvas);
+      this._hits = { n: 0, x: new Float32Array(4096), y: new Float32Array(4096), r: new Float32Array(4096), p: new Array(4096) };
+      this._tip = L.tooltip({ className: "poi-tip", direction: "top", offset: [0, -8] });
+      this._tipOpen = false; this._zooming = false; this._pending = false;
+      this._onMove = () => { if (this._uncovered()) this.schedule(); };
+      this._onResize = () => this.schedule();
+      this._onZoomStart = () => { this._zooming = true; this._canvas.style.opacity = 0; this._leave(); };
+      this._onZoomEnd = () => { this._zooming = false; this.schedule(); };
+      m.on("move", this._onMove);
+      m.on("resize viewreset", this._onResize);
+      m.on("zoomstart", this._onZoomStart);
+      m.on("zoomend", this._onZoomEnd);
+      m.on("mousemove", this._hover, this);
+      m.on("click", this._openLore, this);
+      m.on("mouseout", this._leave, this);
+      this.schedule();
+    },
+    onRemove(m) {
+      m.off("move", this._onMove);
+      m.off("resize viewreset", this._onResize);
+      m.off("zoomstart", this._onZoomStart);
+      m.off("zoomend", this._onZoomEnd);
+      m.off("mousemove", this._hover, this);
+      m.off("click", this._openLore, this);
+      m.off("mouseout", this._leave, this);
+      L.DomUtil.remove(this._canvas);
+    },
+    // At most one redraw per animation frame, none while a zoom animation runs.
+    schedule() {
+      if (this._pending) return;
+      this._pending = true;
+      requestAnimationFrame(() => { this._pending = false; this.redraw(); });
+    },
+    invalidate() { for (const k in poiImages) { delete poiImages[k].sprite; delete poiImages[k].scaled; } this.schedule(); },
+    // The canvas reaches a fifth of the screen past every edge, so panning just moves the drawn
+    // picture with the map; it is drawn again once an edge of it would come into view.
+    _uncovered() {
+      if (!this._origin) return true;
+      const m = this._map, size = m.getSize(), o = m.layerPointToContainerPoint(this._origin);
+      return o.x > 0 || o.y > 0 || o.x + this._full.x < size.x || o.y + this._full.y < size.y;
+    },
+    // The icon with its shadow is rendered once per category at twice the base size; for
+    // drawing, a copy at the current size (in 2 px steps) is kept, so every point is a plain
+    // unscaled blit.
+    _sprite(c, iconSize) {
+      const entry = poiImages[c.id];
+      if (!entry || !entry.img.complete || !entry.img.naturalWidth) return null;
+      if (!entry.sprite) {
+        const size = entry.base * 2, pad = entry.glow ? Math.round(size * 0.55) : 6, w = size + pad * 2;
+        const off = document.createElement("canvas");
+        off.width = off.height = w;
+        const ctx = off.getContext("2d");
+        if (entry.glow) {
+          // Deposits: a soft halo in a light version of their colour behind the plate, so they
+          // stand out on the map even when zoomed out.
+          const r = w / 2, g = ctx.createRadialGradient(r, r, size * 0.42, r, r, r);
+          g.addColorStop(0, entry.glow + "f2"); g.addColorStop(0.35, entry.glow + "9c"); g.addColorStop(1, entry.glow + "00");
+          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(r, r, r, 0, Math.PI * 2); ctx.fill();
+          ctx.shadowColor = "rgba(0,0,0,0.6)"; ctx.shadowBlur = 4; ctx.shadowOffsetY = 1;
+        } else {
+          ctx.shadowColor = "rgba(0,0,0,0.7)"; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
+        }
+        ctx.drawImage(entry.img, pad, pad, size, size);
+        entry.sprite = { canvas: off, ratio: w / size };
+        entry.scaled = new Map();
+      }
+      const dpr = window.devicePixelRatio || 1;
+      const step = Math.max(8, Math.round(iconSize / 2) * 2);
+      let sc = entry.scaled.get(step);
+      if (!sc) {
+        const w = step * entry.sprite.ratio;
+        const off = document.createElement("canvas");
+        off.width = off.height = Math.ceil(w * dpr);
+        off.getContext("2d").drawImage(entry.sprite.canvas, 0, 0, off.width, off.height);
+        sc = { canvas: off, w };
+        entry.scaled.set(step, sc);
+      }
+      return sc;
+    },
+    _push(x, y, r, p) {
+      const h = this._hits;
+      if (h.n === h.x.length) {
+        const grow = a => { const b = new Float32Array(a.length * 2); b.set(a); return b; };
+        h.x = grow(h.x); h.y = grow(h.y); h.r = grow(h.r); h.p.length = h.x.length;
+      }
+      h.x[h.n] = x; h.y[h.n] = y; h.r[h.n] = r; h.p[h.n] = p; h.n++;
+    },
+    redraw() {
+      if (this._zooming || !this._ctx) return;
+      try { this._draw(); } catch (e) { mapError("marker drawing failed: " + (e && e.message)); }
+    },
+    _draw() {
+      const m = this._map, size = m.getSize(), dpr = window.devicePixelRatio || 1, c = this._canvas;
+      const pad = L.point(Math.round(size.x * 0.2), Math.round(size.y * 0.2)), full = size.add(pad.multiplyBy(2));
+      if (c.width !== Math.round(full.x * dpr) || c.height !== Math.round(full.y * dpr)) {
+        c.width = Math.round(full.x * dpr); c.height = Math.round(full.y * dpr);
+        c.style.width = full.x + "px"; c.style.height = full.y + "px";
+      }
+      this._origin = m.containerPointToLayerPoint(pad.multiplyBy(-1));
+      this._pad = pad; this._full = full;
+      L.DomUtil.setPosition(c, this._origin);
+      c.style.opacity = 1;
+      const ctx = this._ctx;
+      // Drawn in container pixels of this moment (hits too); the canvas starts at -pad.
+      ctx.setTransform(dpr, 0, 0, dpr, pad.x * dpr, pad.y * dpr);
+      ctx.clearRect(-pad.x, -pad.y, full.x, full.y);
+      this._hits.n = 0;
+      if (!poiData) return;
+      // CRS.Simple is linear, so a point's container position is origin + world * scale per axis.
+      // Leaflet rounds latLngToContainerPoint to whole pixels (useless below 1 px per metre), so
+      // the scale comes from the unrounded inverse: two container points mapped to the world.
+      const A = m.containerPointToLatLng([0, 0]), B = m.containerPointToLatLng([1000, 1000]);
+      const sx = 1000 / (B.lng - A.lng), sy = 1000 / (B.lat - A.lat);
+      const ox = -A.lng * sx, oy = -A.lat * sy;
+      const scale = poiScale(), margin = 40, X0 = -pad.x - margin, Y0 = -pad.y - margin, W = size.x + pad.x + margin, H = size.y + pad.y + margin;
+      const labelFont = "700 " + (13 * Math.max(0.8, scale)).toFixed(1) + "px Alegreya, Georgia, serif";
+      const order = poiData.groups;
+      const lootedSprite = poiImages.looted ? this._sprite({ id: "looted" }, 22 * scale) : null;
+      if (!poiImages.looted) poiImages.looted = { img: loadImage(glyphUrl(GLYPHS.looted, "#6b6b75"), () => this.invalidate()), base: 22 };
+      for (const layerGroup of [order.loot, order.places, order.finds, order.labels]) {
+        for (const { c, pts } of layerGroup) {
+          if (!poiEnabled[c.id]) continue;
+          const label = LABEL_ONLY.has(c.id);
+          let iconSize = label ? 0 : poiImages[c.id] ? poiImages[c.id].base * scale : 0;
+          // Deposits stay prominent when zoomed out: 34 to 46 px whatever the zoom.
+          if (c.id.startsWith("ore:")) iconSize = Math.min(46, Math.max(34, iconSize * 1.25));
+          const sp = label ? null : this._sprite(c, iconSize);
+          if (!label && !sp) continue;
+          const dw = label ? 0 : sp.w, half = dw / 2, hitR = iconSize / 2 + 2;
+          if (label) {
+            ctx.font = labelFont; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            if ("letterSpacing" in ctx) ctx.letterSpacing = "0.12em";
+            ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,0.85)"; ctx.fillStyle = "#f3ead9";
+          }
+          for (let i = 0; i < pts.length; i++) {
+            const p = pts[i];
+            const x = ox + p[1] * sx, y = oy + p[3] * sy;
+            if (x < X0 || y < Y0 || x > W || y > H) continue;
+            if (discHidden(p)) continue;
+            if (label) {
+              const t = p[4].toUpperCase();
+              ctx.strokeText(t, x, y); ctx.fillText(t, x, y);
+              this._push(x, y, 14, p);
+            } else {
+              const idx = (lootedByPoi.size || chestByPoi.size) && !p.isFind ? poiData.pois.indexOf(p) : -1;
+              const real = idx >= 0 ? chestByPoi.get(idx) : null, record = idx >= 0 ? lootedByPoi.get(idx) : null;
+              const looted = real ? (real.empty ? real : null) : record && lootState(record) ? record : null;
+              if (p[5] && p[5].chest && !p[5].real && !lootState(p[5].chest)) continue;   // a looted chest not in the data, refilled
+              if (looted && hideLooted) continue;
+              if (looted && lootedSprite) ctx.drawImage(lootedSprite.canvas, x - lootedSprite.w / 2, y - lootedSprite.w / 2, lootedSprite.w, lootedSprite.w);
+              else ctx.drawImage(sp.canvas, x - half, y - half, dw, dw);
+              this._push(x, y, hitR, p);
+            }
+          }
+        }
+      }
+      this._regionsDrawn = 0;
+      this._placeBoxes = [];
+      const taken = showRegions && rawPoiData && rawPoiData.regions ? this._drawRegions(ctx, ox, oy, sx, sy, X0, Y0, W, H) : [];
+      if (showPlaces && PLACES.length) this._drawPlaces(ctx, ox, oy, sx, sy, X0, Y0, W, H, taken);
+    },
+    // The game's place names (pois.json "places": its Location labels, the names the game writes on
+    // its own map) in small capitals under their spot, fading in from zoom -2.6. A name that would
+    // touch a region name or one already drawn is left out; names used once come first. The
+    // Discovered filter hides them like the markers (by the explored area).
+    _drawPlaces(ctx, ox, oy, sx, sy, X0, Y0, W, H, taken) {
+      const z = this._map.getZoom(), alpha = Math.max(0, Math.min(1, (z + 2.6) / 0.7));
+      if (alpha <= 0) return;
+      const size = Math.round(Math.max(10, Math.min(15, 13 + z * 1.5)));
+      const filter = discMode !== "all" && EXP && discNames().length;
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.95;
+      ctx.font = "600 " + size + "px Alegreya, Georgia, serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      if ("letterSpacing" in ctx) ctx.letterSpacing = (size * 0.12).toFixed(1) + "px";
+      ctx.lineJoin = "round"; ctx.lineWidth = 3; ctx.strokeStyle = "rgba(10, 8, 14, 0.85)";
+      ctx.fillStyle = "#f1e4c4";
+      const boxes = this._placeBoxes, hit = b => taken.some(q => b[0] < q[2] && b[2] > q[0] && b[1] < q[3] && b[3] > q[1])
+        || boxes.some(q => b[0] < q[2] && b[2] > q[0] && b[1] < q[3] && b[3] > q[1]);
+      for (const [name, wx, wz, upper] of PLACES) {
+        const x = ox + wx * sx, y = oy + wz * sy + 11;
+        if (x < X0 || x > W || y < Y0 || y > H) continue;
+        if (filter) { const known = exploredAt(wx, wz); if (discMode === "known" ? !known : known) continue; }
+        const half = ctx.measureText(upper).width / 2 + 3, box = [x - half, y - 1, x + half, y + size + 1];
+        if (hit(box)) continue;
+        ctx.strokeText(upper, x, y); ctx.fillText(upper, x, y);
+        boxes.push(box);
+      }
+      ctx.restore();
+    },
+    // The game's region names (pois.json "regions": its MapLabel_general_Tower_* labels at each
+    // region's Ancient Spire) in spaced capitals, as on the game's map: large when zoomed out,
+    // fading away from zoom -1 on, where the places themselves carry the names.
+    _drawRegions(ctx, ox, oy, sx, sy, X0, Y0, W, H) {
+      const z = this._map.getZoom(), alpha = Math.max(0, Math.min(1, (-0.5 - z) / 1.25));
+      this._regionsDrawn = 0;
+      if (alpha <= 0) return [];
+      const size = Math.round(Math.max(15, Math.min(30, 30 + (z + 2) * 8)));
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.font = "600 " + size + "px Alegreya, Georgia, serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      if ("letterSpacing" in ctx) ctx.letterSpacing = (size * 0.3).toFixed(1) + "px";
+      ctx.lineJoin = "round"; ctx.lineWidth = Math.max(3, size / 5); ctx.strokeStyle = "rgba(10, 8, 14, 0.82)";
+      ctx.fillStyle = "#f6e7c6";
+      // Under the spire icon, or above it when that would run into a name already drawn.
+      const placed = [], hits = (l, t, r, b) => placed.some(q => l < q[2] && r > q[0] && t < q[3] && b > q[1]);
+      for (const [name, wx, wz] of rawPoiData.regions) {
+        const x = ox + wx * sx, sy0 = oy + wz * sy;
+        if (x < X0 - 300 || x > W + 300 || sy0 < Y0 - 50 || sy0 > H + 50) continue;
+        const t = name.toUpperCase(), half = ctx.measureText(t).width / 2 + 6;
+        let y = sy0 + 16;
+        if (hits(x - half, y, x + half, y + size)) y = sy0 - 16 - size;
+        ctx.strokeText(t, x, y); ctx.fillText(t, x, y);
+        placed.push([x - half, y, x + half, y + size]);
+        this._regionsDrawn++;
+      }
+      ctx.restore();
+      return placed;
+    },
+    _openLore(e) {
+      const hits = this._hits;
+      let point = e.containerPoint;
+      if (this._origin) point = point.subtract(this._map.layerPointToContainerPoint(this._origin).add(this._pad));
+      for (let i = hits.n - 1; i >= 0; --i) {
+        const note = hits.p[i];
+        if (note.lore === undefined || Math.abs(hits.x[i] - point.x) > hits.r[i] ||
+            Math.abs(hits.y[i] - point.y) > hits.r[i]) continue;
+        const body = document.createElement("article");
+        const title = document.createElement("h3");
+        title.textContent = note[4];
+        const text = document.createElement("div");
+        text.style.whiteSpace = "pre-wrap";
+        text.style.maxHeight = "55vh";
+        text.style.overflowY = "auto";
+        text.textContent = note.lore || t("Text unavailable.");
+        body.append(title, text);
+        L.popup({ maxWidth: 440 }).setLatLng([note[3], note[1]]).setContent(body).openOn(this._map);
+        return;
+      }
+    },
+    _hover(e) {
+      const h = this._hits;
+      let pt = e.containerPoint;
+      if (this._origin) pt = pt.subtract(this._map.layerPointToContainerPoint(this._origin).add(this._pad));
+      let best = -1;
+      // Of all points under the cursor the most important one gets the tooltip: finds first,
+      // then the panel's order (a spire before the fast travel points around it), topmost on a tie.
+      const rank = p => p.isFind ? -1 : p[0];
+      let under = 0;
+      for (let i = h.n - 1; i >= 0; i--) {
+        if (Math.abs(h.x[i] - pt.x) > h.r[i] || Math.abs(h.y[i] - pt.y) > h.r[i]) continue;
+        under++;
+        if (best < 0 || rank(h.p[i]) < rank(h.p[best])) best = i;
+      }
+      if (best < 0) {
+        // No marker here: rain or snow and the shroud under the cursor, if any (those layers
+        // never take the pointer).
+        const ll = this._map.containerPointToLatLng(e.containerPoint);
+        const tip = [weatherTip(ll), shroudTip(ll)].filter(Boolean).join("<br>");
+        if (!tip) { this._leave(); return; }
+        this._tip.setLatLng(ll).setContent(tip);
+        if (!this._tipOpen) { this._map.openTooltip(this._tip); this._tipOpen = true; }
+        this._map.getContainer().style.cursor = "";
+        return;
+      }
+      const p = h.p[best];
+      const idx = !p.isFind && (lootedByPoi.size || chestByPoi.size) ? poiData.pois.indexOf(p) : -1;
+      const record = idx >= 0 ? lootedByPoi.get(idx) : null, real = idx >= 0 ? chestByPoi.get(idx) : null;
+      let lootText = "";
+      if (real) {
+        lootText = real.empty ? " · looted" + (record ? " by " + record.by : "") + ", seen " + fmtDay(real.at) + " (the server's own state)"
+          : " · still full (the server's own state)";
+      } else if (record) {
+        const st = lootState(record);
+        lootText = st ? " · looted by " + record.by + ", " + fmtDay(record.at)
+            + (st.never ? " · in a base: does not refill" : " · refills in about " + st.left + " min")
+          : " · looted by " + record.by + " " + fmtAgo(record.at) + ", should be full again";
+      }
+      this._tip.setLatLng([p[3], p[1]]).setContent(p[4] + " · " + p[2].toFixed(0) + " m" + lootText + discText(p)
+        + (under > 1 ? " · +" + (under - 1) + " more here" : ""));
+      if (!this._tipOpen) { this._map.openTooltip(this._tip); this._tipOpen = true; }
+      this._map.getContainer().style.cursor = "pointer";
+    },
+    _leave() {
+      if (this._tipOpen) { this._map.closeTooltip(this._tip); this._tipOpen = false; }
+      this._map.getContainer().style.cursor = "";
+    },
+  });
+  const poiLayer = new PoiLayer();
+  // Place names on the canvas use Alegreya: draw them again once the font is in.
+  fontReady.then(() => poiLayer.schedule(), () => {});
+  window.livemap = { map, poiLayer, heading(axis) { HEADING.axis = axis; try { localStorage.setItem("livemap.headingAxis", axis); } catch {} } };
+
+  // Finds (livemap/finds.json via /finds): ore deposits become categories "ore:<sort>" with a
+  // pickaxe glyph, looted chests dim their POI and get a check mark. Rebuilt on every refresh.
+  let findsData = null, findsVersion = -1, lootedByPoi = new Map();
+  // Flame Altars (player bases) from /bases: the first category, in its own panel group.
+  // Their points go after the pois.json ones, so finds keep pointing at the right chests.
+  let basesData = null, basesVersion = -1;
+  function applyBases(data, bases) {
+    if (!bases || !bases.bases || !bases.bases.length) return;
+    data.categories.unshift({ id: "altar", label: "Flame Altars", color: "#ffc04d", on: true, label_default: "Flame Altar" });
+    for (const p of data.pois) p[0] += 1;
+    for (const b of bases.bases) {
+      // size = half the side of the build zone box (the server adds it on both sides)
+      const zone = b.size && b.size[0] > 0 ? " · build zone " + Math.round(2 * b.size[0]) + " × " + Math.round(2 * b.size[2]) + " m" : "";
+      data.pois.push([0, b.x, b.y, b.z, "Flame Altar" + (b.abandoned ? " (abandoned)" : "") + zone, { base: true }]);
+    }
+  }
+
+  function applyFinds(data, finds) {
+    data.categories = data.categories.filter(c => !c.id.startsWith("ore:") && c.id !== "looted");
+    data.pois = data.pois.filter(p => !p.isFind);
+    lootedByPoi = new Map();
+    if (!finds) return;
+    const sorts = new Map();
+    for (const d of finds.ore) {
+      const key = "ore:" + (d.sort || "unknown");
+      if (!sorts.has(key)) {
+        const [label, color] = oreLabel(d.sort);
+        sorts.set(key, { id: key, label, color, on: true, label_default: label, sort: d.sort });
+      }
+      const label = oreLabel(d.sort)[0] + (d.sort ? "" : " · " + d.xp + " XP per hit") + " · " + d.hits + " hit" + (d.hits > 1 ? "s" : "")
+        + (d.by.length ? " · found by " + d.by.join(", ") + ", " + fmtDay(d.first) : "");
+      data.pois.push([key, d.x, d.y, d.z, label, { find: true }]);
+    }
+    for (const c of [...sorts.values()].sort((a, b) => a.label.localeCompare(b.label))) data.categories.push(c);
+    // A looted chest marks the nearest chest in the data within 3 m. Without a match it is
+    // shown on its own only when the server confirmed a random loot container (rl true);
+    // rl false is player storage and never shown, rl null is unverified.
+    const lootCats = new Set();
+    data.categories.forEach((c, i) => { if (c.id.startsWith("chest") || c.id === "sarcophagus") lootCats.add(i); });
+    const nearestChest = (x, z) => {
+      let best = -1, bestD = 9;
+      for (let i = 0; i < data.pois.length; i++) {
+        const p = data.pois[i];
+        if (p[5] || !lootCats.has(p[0])) continue;
+        const dx = p[1] - x, dz = p[3] - z, d = dx * dx + dz * dz;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      return best;
+    };
+    const unknownChests = [];
+    for (const c of finds.chests) {
+      if (c.rl === false) continue;
+      const poi = c.poi !== null && c.poi >= 0 && c.poi < data.pois.length ? c.poi : nearestChest(c.x, c.z);
+      if (poi >= 0) lootedByPoi.set(poi, c);
+      else if (c.rl === true) unknownChests.push([ "looted", c.x, c.y, c.z, "Looted chest · by " + c.by + ", " + fmtDay(c.at), { find: true, chest: c } ]);
+    }
+    if (unknownChests.length) {
+      data.categories.push({ id: "looted", label: "Looted chests (not in the data)", color: "#6b6b75", on: true, label_default: "Looted chest" });
+      data.pois.push(...unknownChests);
+    }
+    // category ids on finds are strings; turn them into indexes like the rest
+    const index = new Map(data.categories.map((c, i) => [c.id, i]));
+    for (const p of data.pois) if (typeof p[0] === "string") p[0] = index.get(p[0]);
+    // (a plain `find` flag would collide with Array.prototype.find and hide every marker)
+    for (const p of data.pois) if (p[5]) p.isFind = true;
+  }
+
+  // The server's view of the loaded world (/objects, livemap/objects.json): every chest it has
+  // had loaded, looted or not, keyed to the nearest chest in the data within 3 m (looted ones
+  // without a match get their own marker), and locks, magic barriers and switches with the last
+  // state seen. The game does not seem to refill world chests, so this state replaces the
+  // refill guess wherever it is known.
+  let objectsData = null, objectsVersion = -1, objectsFetching = false, chestByPoi = new Map();
+  const chestGrade = t => /gold/i.test(t) ? "gold" : /silver/i.test(t) ? "silver" : /sarcophag/i.test(t) ? "sarcophagus" : "wooden";
+  function switchName(s) {
+    if (s.k === "b" || /barrier/i.test(s.t)) return "Magic barrier";
+    if (/chest|loot/i.test(s.t)) return "Locked chest";
+    if (/secret/i.test(s.t)) return "Secret door";
+    if (/lever/i.test(s.t)) return "Lever";
+    if (/button/i.test(s.t)) return "Button";
+    if (/door|gate/i.test(s.t)) return s.k === "l" ? "Locked door" : "Door";
+    return "Switch";
+  }
+  function switchState(s) {
+    if (s.k === "l") return s.on ? "unlocked" : "locked";
+    return s.k === "b" || /door|gate/i.test(s.t) ? (s.on ? "open" : "closed") : (s.on ? "used" : "not used yet");
+  }
+  function applyObjects(data, objects) {
+    chestByPoi = new Map();
+    if (!objects) return;
+    const lootCats = new Set();
+    data.categories.forEach((c, i) => { if (c.id.startsWith("chest") || c.id === "sarcophagus") lootCats.add(i); });
+    const cat = (id, label, color, def) => {
+      let i = data.categories.findIndex(c => c.id === id);
+      if (i < 0) { data.categories.push({ id, label, color, on: true, label_default: def }); i = data.categories.length - 1; }
+      return i;
+    };
+    const add = p => { p.isFind = true; data.pois.push(p); };
+    for (const c of objects.chests || []) {
+      let best = -1, bestD = 9;
+      for (let i = 0; i < data.pois.length; i++) {
+        const p = data.pois[i];
+        if (p[5] || !lootCats.has(p[0])) continue;
+        const dx = p[1] - c.x, dz = p[3] - c.z, d = dx * dx + dz * dz;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (best >= 0) chestByPoi.set(best, c);
+      else if (c.empty) add([cat("looted", "Looted chests (not in the data)", "#6b6b75", "Looted chest"), c.x, c.y, c.z,
+        "Looted chest (" + chestGrade(c.t) + ") · seen " + fmtDay(c.at), { find: true, chest: c, real: true }]);
+    }
+    for (const s of objects.switches || []) {
+      if (/crafted|craftable|buildingset|spawnpoint|respawner/i.test(s.t)) continue;   // built by players, enemy spawners
+      const i = s.on ? cat("lock_open", "Unlocked & opened", "#8fd16a", "Opened") : cat("lock_closed", "Locked & closed", "#e0a35a", "Closed");
+      add([i, s.x, s.y, s.z, switchName(s) + " · " + switchState(s) + (s.on ? " since " : " · seen ") + fmtDay(s.at), { find: true, sw: s }]);
+    }
+  }
+  function maybeRefreshObjects(version) {
+    if (version === undefined || version === objectsVersion || objectsFetching || !rawPoiData) return;
+    objectsFetching = true;
+    fetch("objects" + q).then(r => r.ok ? r.json() : null).then(d => {
+      if (d) { objectsData = d; objectsVersion = d.version; rebuildPois(); }
+    }).catch(() => {}).finally(() => { objectsFetching = false; });
+  }
+
+  function preparePois(data) {
+    const byCat = data.categories.map(c => ({ c, pts: [] }));
+    for (const p of data.pois) {
+      if (p.length < 5 || p[4] === undefined) p[4] = data.categories[p[0]].label_default || data.categories[p[0]].label;
+      byCat[p[0]].pts.push(p);
+    }
+    const isLoot = c => c.id.startsWith("chest") || c.id === "sarcophagus" || c.id === "fishing" || c.id === "looted" || c.id.startsWith("lock_");
+    const isFind = c => c.id.startsWith("ore:");
+    data.groups = {
+      loot: byCat.filter(g => isLoot(g.c)),
+      places: byCat.filter(g => !isLoot(g.c) && !isFind(g.c) && !LABEL_ONLY.has(g.c.id)),
+      finds: byCat.filter(g => isFind(g.c)),
+      labels: byCat.filter(g => LABEL_ONLY.has(g.c.id)),
+    };
+    for (const { c, pts } of byCat) c.count = pts.length;
+    const redraw = () => poiLayer.invalidate();
+    for (const c of data.categories) {
+      if (LABEL_ONLY.has(c.id)) continue;
+      if (iconFiles[c.id]) poiImages[c.id] = { img: loadImage("icons/" + iconFiles[c.id] + q, redraw), base: 36 };
+      else if (c.id.startsWith("chest")) poiImages[c.id] = { img: loadImage(glyphUrl(GLYPHS.chest, c.color), redraw), base: 22 };
+      else if (c.id.startsWith("ore:")) poiImages[c.id] = { img: loadImage(oreIconUrl(c.sort, c.color), redraw), base: 30, glow: lighten(c.color, 0.6) };
+      else if (c.id === "looted") poiImages[c.id] = { img: loadImage(glyphUrl(GLYPHS.looted, c.color), redraw), base: 22 };
+      else if (GLYPHS[c.id]) poiImages[c.id] = { img: loadImage(glyphUrl(GLYPHS[c.id], c.color), redraw), base: c.id === "fasttravel" ? 26 : 22 };
+    }
+  }
+
+  function renderPoiPanel(data) {
+    const prefs = poiPrefs();
+    const list = document.getElementById("poiList");
+    list.innerHTML = "";
+    let lastGroup = "";
+    const groupOf = c => c.id === "altar" ? "Bases" : c.id.startsWith("ore:") ? "Finds"
+        : c.id.startsWith("chest") || c.id === "sarcophagus" || c.id === "fishing" || c.id === "looted" || c.id.startsWith("lock_") ? "Loot" : "Places";
+    const labelOf = c => t(c.label === "Bilhetes e lore" ? "Notes and lore" : c.label);
+    const groupOrder = ["Places", "Bases", "Finds", "Loot"];
+    const collator = new Intl.Collator(language, { sensitivity: "base", numeric: true });
+    // Sort only the panel's copy: POI category indexes also drive map rendering.
+    const categories = [...data.categories].sort((a, b) =>
+      groupOrder.indexOf(groupOf(a)) - groupOrder.indexOf(groupOf(b)) ||
+      collator.compare(labelOf(a), labelOf(b)));
+    for (const c of categories) {
+      const group = groupOf(c);
+      if (group !== lastGroup) {
+        const h = document.createElement("div"); h.className = "group"; h.textContent = group; list.appendChild(h);
+        lastGroup = group;
+      }
+      poiEnabled[c.id] = c.id in prefs ? prefs[c.id] : c.on;
+      const label = document.createElement("label");
+      label.innerHTML = '<input type="checkbox"><span class="sw"></span><span class="t"></span><span class="n"></span>';
+      const cb = label.querySelector("input");
+      cb.checked = poiEnabled[c.id];
+      if (iconFiles[c.id]) label.querySelector(".sw").innerHTML = '<img src="icons/' + iconFiles[c.id] + q + '" alt="">';
+      else if (c.id.startsWith("ore:")) label.querySelector(".sw").innerHTML = '<img src="' + oreIconUrl(c.sort, c.color) + '" alt="">';
+      else label.querySelector(".sw").style.background = c.color;
+      label.querySelector(".t").textContent = labelOf(c);
+      label.querySelector(".n").textContent = c.count;
+      cb.onchange = () => {
+        poiEnabled[c.id] = cb.checked;
+        poiLayer.redraw();
+        const p = poiPrefs(); p[c.id] = cb.checked; savePoiPrefs(p);
+      };
+      list.appendChild(label);
+    }
+    const hide = document.createElement("label");
+    hide.innerHTML = '<input type="checkbox" data-extra="1"><span class="t">Hide looted chests</span>';
+    const hb = hide.querySelector("input");
+    hb.checked = hideLooted;
+    hb.onchange = () => { hideLooted = hb.checked; try { localStorage.setItem("livemap.hideLooted", hideLooted ? "1" : "0"); } catch {} poiLayer.redraw(); };
+    const lootHeader = [...list.querySelectorAll(".group")].find(h => h.textContent === "Loot");
+    if (lootHeader) { const next = [...list.children].slice([...list.children].indexOf(lootHeader) + 1).find(e => e.classList.contains("group")); list.insertBefore(hide, next || null); }
+    // Overlays on or off (the clock keeps its weather text either way).
+    const wxHead = document.createElement("div"); wxHead.className = "group"; wxHead.textContent = "Overlays";
+    const wx = document.createElement("label");
+    wx.innerHTML = '<input type="checkbox" data-extra="1"><span class="sw" style="background:#5aa0ff"></span><span class="t">Rain and snow</span>';
+    const wb = wx.querySelector("input");
+    wb.checked = showWeather;
+    wb.onchange = () => { setWeatherShown(wb.checked); };
+    const sh = document.createElement("label");
+    sh.innerHTML = '<input type="checkbox" data-extra="1"><span class="sw" style="background:#ff3caa"></span><span class="t" id="shroudLabel">Deadly shroud</span>';
+    const sb = sh.querySelector("input");
+    sb.checked = showShroud;
+    sb.onchange = () => { setShroudShown(sb.checked); };
+    const fg = document.createElement("label");
+    fg.innerHTML = '<input type="checkbox" data-extra="1"><span class="sw" style="background:#2a2236;border:1px solid #6a5a80"></span><span class="t">Fog of war (by the player chosen below)</span>';
+    const fb = fg.querySelector("input");
+    fb.checked = showFog;
+    fb.onchange = () => { setFogShown(fb.checked); };
+    const rg = document.createElement("label");
+    rg.innerHTML = '<input type="checkbox" data-extra="1"><span class="sw" style="background:#f6e7c6"></span><span class="t">Region names</span>';
+    const rb = rg.querySelector("input");
+    rb.checked = showRegions;
+    rb.onchange = () => { showRegions = rb.checked; try { localStorage.setItem("livemap.regions", showRegions ? "1" : "0"); } catch {} poiLayer.schedule(); };
+    const pl = document.createElement("label");
+    pl.innerHTML = '<input type="checkbox" data-extra="1"><span class="sw" style="background:#cdbb92"></span><span class="t">Place names</span>';
+    const pb = pl.querySelector("input");
+    pb.checked = showPlaces;
+    pb.onchange = () => { showPlaces = pb.checked; try { localStorage.setItem("livemap.places", showPlaces ? "1" : "0"); } catch {} poiLayer.schedule(); };
+    const cr = document.createElement("label");
+    cr.innerHTML = '<input type="checkbox" data-extra="1"><span class="sw" style="background:#c8463a"></span><span class="t">Creatures near players</span>';
+    const cb2 = cr.querySelector("input");
+    cb2.checked = showCreatures;
+    cb2.onchange = () => {
+      showCreatures = cb2.checked;
+      try { localStorage.setItem("livemap.creatures", showCreatures ? "1" : "0"); } catch {}
+      if (showCreatures) { creatureLayer.addTo(map); creaturesVersion = -1; } else { creatureLayer.remove(); }
+      drawCreatures();
+    };
+    list.prepend(wxHead, wx, sh, fg, rg, pl, cr);
+    shroudLabel();
+    const dHead = document.createElement("div"); dHead.className = "group"; dHead.textContent = "Discovered";
+    const dRow = document.createElement("div"); dRow.className = "disc";
+    dRow.innerHTML = '<select id="discMode"><option value="all">All places</option><option value="known">Discovered</option>'
+      + '<option value="unknown">Not discovered</option></select><select id="discBy"></select><span class="disc-note" id="discNote"></span>';
+    cr.after(dHead, dRow);
+    const modeSel = dRow.querySelector("#discMode"), bySel = dRow.querySelector("#discBy");
+    modeSel.value = discMode;
+    modeSel.onchange = () => { discMode = modeSel.value; try { localStorage.setItem("livemap.discMode", discMode); } catch {} poiLayer.invalidate(); };
+    bySel.onchange = () => { discBy = bySel.value; try { localStorage.setItem("livemap.discBy", discBy); } catch {} discInvalidate(); drawFog(); poiLayer.invalidate(); };
+    discPanel();
+    translateUi(list);
+    document.getElementById("poiAll").onclick = () => {
+      const boxes = [...list.querySelectorAll("input:not([data-extra])")];
+      const turnOn = boxes.some(b => !b.checked);
+      boxes.forEach(b => { if (b.checked !== turnOn) { b.checked = turnOn; b.onchange(); } });
+    };
+  }
+
+  let rawPoiData = null;
+  let PLACES = [];   // [name, x, z, NAME, how often the name is used], names used once first
+  function rebuildPois() {
+    const data = JSON.parse(JSON.stringify(rawPoiData));
+    // Discovery keys belong to the pois.json order, so attach them before altars and finds append.
+    for (const [i, k] of Object.entries(data.discoveryKeys || {})) if (data.pois[+i]) data.pois[+i].k = k;
+    for (const [i, text] of Object.entries(data.loreTexts || {})) if (data.pois[+i]) data.pois[+i].lore = text;
+    for (const [i, note] of Object.entries(data.loreLocales?.[language] || {})) if (data.pois[+i]) {
+      data.pois[+i][4] = note.title;
+      data.pois[+i].lore = note.text;
+    }
+    applyBases(data, basesData);
+    applyFinds(data, findsData);
+    applyObjects(data, objectsData);
+    poiData = data;
+    discInvalidate();
+    preparePois(data);
+    renderPoiPanel(data);
+    poiLayer.invalidate();
+  }
+  Promise.all([
+    fetchJsonRetry("pois.json" + q, null),
+    fetchJsonRetry("icons/icons.json" + q, {}),
+    fetch("finds" + q).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch("bases" + q).then(r => r.ok ? r.json() : null).catch(() => null),
+  ]).then(([data, icons, finds, bases]) => {
+    if (!data) return;
+    iconFiles = icons || {};
+    rawPoiData = data;
+    const uses = new Map();
+    for (const [name] of data.places || []) uses.set(name, (uses.get(name) || 0) + 1);
+    PLACES = (data.places || []).map(([name, x, z]) => [name, x, z, name.toUpperCase(), uses.get(name)])
+      .sort((a, b) => a[4] - b[4]);
+    findsData = finds;
+    findsVersion = finds ? finds.version : -1;
+    basesData = bases;
+    basesVersion = bases ? bases.version : -1;
+    rebuildPois();
+    poiLayer.addTo(map);
+  });
+  let findsFetching = false;
+  function maybeRefreshFinds(version) {
+    if (version === undefined || version === findsVersion || findsFetching || !rawPoiData) return;
+    findsFetching = true;
+    fetch("finds" + q).then(r => r.ok ? r.json() : null).then(finds => {
+      if (finds) { findsData = finds; findsVersion = finds.version; rebuildPois(); }
+    }).catch(() => {}).finally(() => { findsFetching = false; });
+  }
+
+  // Discovered markers (/discovered): per player the knowledge keys the server has set; a point
+  // with a discovery key (pois.json discoveryKeys) is discovered when its key is in the set. Players
+  // keep their set after logging out. Points without a key are never filtered.
+  let DISC = null, discVersion = -1, discFetching = false;
+  let discMode = (() => { try { return localStorage.getItem("livemap.discMode") || "all"; } catch { return "all"; } })();
+  let discBy = (() => { try { return localStorage.getItem("livemap.discBy") || ""; } catch { return ""; } })();
+  // The chosen players and their combined explored grid are cached; discInvalidate() after new
+  // data or another choice (the marker loop asks for every point on every redraw).
+  let discNamesCache = null;
+  function discInvalidate() { discNamesCache = null; expGrid = null; }
+  function discNames() {
+    if (discNamesCache) return discNamesCache;
+    const all = new Set([...Object.keys(DISC ? DISC.players : {}), ...Object.keys(EXP ? EXP.players : {})]);
+    discNamesCache = discBy && all.has(discBy) ? [discBy] : [...all];
+    return discNamesCache;
+  }
+  // Places with a discovery key: the game's own state. Everything else (shrines, chests, ...):
+  // discovered when it lies in the area the chosen player(s) explored. Finds and altars: never
+  // filtered (players made them).
+  function discKnown(p) {
+    if (p.isFind || (p[5] && p[5].base)) return null;
+    if (p.k !== undefined) return DISC ? discNames().some(n => DISC.players[n] && DISC.players[n].keys.has(p.k)) : null;
+    return EXP ? exploredAt(p[1], p[3]) : null;
+  }
+  function discHidden(p) {
+    if (discMode === "all" || !discNames().length) return false;
+    const known = discKnown(p);
+    return known === null ? false : discMode === "known" ? !known : known;
+  }
+  function discText(p) {
+    if (!DISC || p.k === undefined || !Object.keys(DISC.players).length) return "";
+    const by = Object.keys(DISC.players).filter(n => DISC.players[n].keys.has(p.k));
+    return by.length ? " · discovered by " + by.join(", ") : " · not discovered yet";
+  }
+  function discPanel() {
+    const bySel = document.getElementById("discBy"), note = document.getElementById("discNote");
+    if (!bySel) return;
+    const names = [...new Set([...Object.keys(DISC ? DISC.players : {}), ...Object.keys(EXP ? EXP.players : {})])].sort();
+    const online = n => DISC && DISC.players[n] ? DISC.players[n].online : false;
+    const want = ['<option value="">' + t("by anyone") + '</option>'].concat(names.map(n =>
+      '<option value="' + n.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;") + '">' + t("by ") + n.replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      + (online(n) ? "" : " (offline)") + "</option>")).join("");
+    if (bySel.innerHTML !== want) { bySel.innerHTML = want; bySel.value = names.includes(discBy) ? discBy : ""; }
+    note.textContent = !DISC && !EXP ? t("Needs the server part 1.6.") : !names.length ? t("Nobody has played since the update.")
+      : t("Towns, dungeons, camps ... use the game's own state; everything else counts within 300 m of where that player has been.");
+    document.getElementById("discMode").disabled = !names.length;
+    bySel.disabled = !names.length;
+  }
+  // Explored area (/explored): per player a 512 x 512 grid of 20 m cells (row 0 = south), set
+  // within 300 m of every position the server saw. The map adds 300 m around each place a player
+  // discovered, which covers the time before the update. The combined grid follows the "by"
+  // choice and is rebuilt when the data or the choice changes.
+  let EXP = null, expVersion = -1, expFetching = false, expLast = 0, expGrid = null;
+  const EXP_RADIUS = 300;
+  function exploredGrid() {
+    if (expGrid) return expGrid;
+    const names = discNames();
+    const n = EXP ? EXP.cells : 512, cell = EXP ? EXP.cellMetres : 20, g = new Uint8Array(n * n);
+    for (const name of names) {
+      const bits = EXP && EXP.players[name];
+      if (bits) for (let i = 0; i < n * n; i++) if (bits[i >> 3] >> (i & 7) & 1) g[i] = 1;
+    }
+    if (DISC && poiData) {
+      const r = Math.ceil(EXP_RADIUS / cell);
+      for (const p of poiData.pois) {
+        if (p.k === undefined || !names.some(nm => DISC.players[nm] && DISC.players[nm].keys.has(p.k))) continue;
+        const cx = Math.floor(p[1] / cell), cz = Math.floor(p[3] / cell);
+        for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+          const col = cx + dx, row = cz + dz;
+          if (col < 0 || row < 0 || col >= n || row >= n) continue;
+          const mx = (col + 0.5) * cell - p[1], mz = (row + 0.5) * cell - p[3];
+          if (mx * mx + mz * mz <= EXP_RADIUS * EXP_RADIUS) g[row * n + col] = 1;
+        }
+      }
+    }
+    expGrid = { n, cell, g };
+    return expGrid;
+  }
+  function exploredAt(x, z) {
+    const { n, cell, g } = exploredGrid();
+    const col = Math.floor(x / cell), row = Math.floor(z / cell);
+    return col >= 0 && row >= 0 && col < n && row < n && g[row * n + col] === 1;
+  }
+  // The server marks the area once a second and the page fetches it every 15 s. In between the
+  // page marks the same 300 m circle around every player it sees, so the fog and the markers
+  // follow the player at once. True when a cell was new.
+  function revealLive(name, x, z) {
+    if (!EXP || !name) return false;
+    const n = EXP.cells, cell = EXP.cellMetres;
+    let bits = EXP.players[name];
+    if (!bits) { bits = EXP.players[name] = new Uint8Array(n * n / 8); discInvalidate(); discPanel(); }
+    const g = expGrid && discNames().includes(name) ? expGrid.g : null;
+    const r = Math.ceil(EXP_RADIUS / cell), cx = Math.floor(x / cell), cz = Math.floor(z / cell);
+    let changed = false;
+    for (let dz = -r; dz <= r; dz++) {
+      const row = cz + dz;
+      if (row < 0 || row >= n) continue;
+      const mz = (row + 0.5) * cell - z;
+      for (let dx = -r; dx <= r; dx++) {
+        const col = cx + dx, mx = (col + 0.5) * cell - x, i = row * n + col;
+        if (col < 0 || col >= n || mx * mx + mz * mz > EXP_RADIUS * EXP_RADIUS || bits[i >> 3] >> (i & 7) & 1) continue;
+        bits[i >> 3] |= 1 << (i & 7);
+        if (g) g[i] = 1;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+  function maybeRefreshExplored(version) {
+    const now = Date.now();
+    if (version === undefined || version === expVersion || expFetching || now - expLast < 15000) return;
+    expFetching = true;
+    expLast = now;
+    fetch("explored" + q).then(r => r.ok ? r.json() : null).then(d => {
+      if (!d) return;
+      const players = EXP && EXP.cells === d.cells ? EXP.players : {};
+      for (const [name, b64] of Object.entries(d.players || {})) {
+        const s = atob(b64), bits = new Uint8Array(s.length), old = players[name];
+        for (let i = 0; i < s.length; i++) bits[i] = s.charCodeAt(i) | (old && old.length === s.length ? old[i] : 0);
+        players[name] = bits;
+      }
+      EXP = { cells: d.cells, cellMetres: d.cellMetres, players };
+      expVersion = d.version;
+      discInvalidate();
+      discPanel();
+      drawFog();
+      poiLayer.invalidate();
+    }).catch(() => {}).finally(() => { expFetching = false; });
+  }
+  function maybeRefreshDiscovered(version) {
+    if (version === undefined || version === discVersion || discFetching) return;
+    discFetching = true;
+    fetch("discovered" + q).then(r => r.ok ? r.json() : null).then(d => {
+      if (!d) return;
+      const players = {};
+      for (const [name, v] of Object.entries(d.players || {})) players[name] = { online: v.online, at: v.at, keys: new Set(v.keys) };
+      DISC = { players };
+      discVersion = d.version;
+      discInvalidate();
+      discPanel();
+      drawFog();
+      poiLayer.invalidate();
+    }).catch(() => {}).finally(() => { discFetching = false; });
+  }
+
+  // Creatures (/creatures, every 2 s): what the server has loaded around the players right now.
+  // Enemies red (brighter in a fight), animals pale, bosses large with their name. The server
+  // knows names for bosses only (pois.json creatureNames); other kinds come from the template.
+  let showCreatures = (() => { try { return localStorage.getItem("livemap.creatures") !== "0"; } catch { return true; } })();
+  const creatureRenderer = L.canvas({ padding: 0.3 });
+  const creatureLayer = L.layerGroup();
+  const creatureMarks = new Map();
+  let creaturesData = null, creaturesVersion = -1, creaturesFetching = false;
+  const CREATURE_KINDS = [[/willowisp/i, "Will-o'-wisp"], [/icewisp/i, "Ice wisp"], [/hound/i, "Hound"], [/wolf/i, "Wolf"],
+    [/sabertooth/i, "Sabertooth"], [/boar/i, "Boar"], [/(^|_)rat(_|$)/i, "Rat"], [/(^|_)bat(_|$)/i, "Bat"], [/wasp/i, "Wasp"],
+    [/bunny/i, "Bunny"], [/catdeer/i, "Catdeer"], [/yak/i, "Yak"], [/goat/i, "Goat"], [/sanddigger/i, "Sanddigger"],
+    [/vulture/i, "Vulture"], [/spider/i, "Spider"], [/critter/i, "Critter"], [/slime/i, "Slime"], [/tentacle/i, "Tentacle"],
+    [/spitter/i, "Spitter"], [/cyclops/i, "Cyclops"], [/vukah/i, "Vukah"], [/skeleton/i, "Skeleton"], [/lizardpeople|drak/i, "Drak"],
+    [/scavenger/i, "Scavenger"], [/fogger/i, "Fell"], [/ancientconstruct/i, "Ancient construct"], [/fish/i, "Fish"]];
+  function creatureName(c) {
+    const known = rawPoiData && rawPoiData.creatureNames && rawPoiData.creatureNames[c.t];
+    if (known) return known;
+    for (const [re, name] of CREATURE_KINDS) if (re.test(c.t)) return name + (/elite/i.test(c.t) ? " (elite)" : "");
+    // Else the first word that is not a family, tier or variant word (as tools/loot_for_page.py).
+    const noise = /^(enemy|animal|wildlife|wildbeast|spawnpoints?|poi|signalreceiver|spawninbox|boss|fog|hook|neutral|hover|combat|summonstone|t\d+|\d+|[a-z]|sm|xl|ag\d)$/i;
+    const word = c.t.split("_").find(w => !noise.test(w)) || c.t;
+    return word.replace(/([a-z])([A-Z])/g, "$1 $2");
+  }
+  function drawCreatures() {
+    if (!showCreatures || !creaturesData) { creatureLayer.clearLayers(); creatureMarks.clear(); return; }
+    const seen = new Set();
+    for (const c of creaturesData.creatures) {
+      const key = c.e + "|" + c.t, fight = c.s === 6;
+      seen.add(key);
+      const style = c.boss ? { radius: 8, color: "#ffd27a", weight: 2, fillColor: "#e0412f", fillOpacity: 1 }
+        : c.animal ? { radius: 3, color: "#1a1208", weight: 1, fillColor: "#d8c79a", fillOpacity: 0.9 }
+        : { radius: fight ? 5 : 4, color: "#1a1208", weight: 1, fillColor: fight ? "#ff5a3c" : "#c8463a", fillOpacity: 0.95 };
+      const text = creatureName(c) + (c.lv ? " · Lv " + c.lv : "") + " · " + c.hp + "/" + c.max + " HP" + (fight ? " · fighting" : "");
+      let m = creatureMarks.get(key);
+      if (!m) {
+        m = L.circleMarker([c.z, c.x], { renderer: creatureRenderer, ...style })
+          .bindTooltip(text, { direction: "top", offset: [0, -8], permanent: !!c.boss, className: c.boss ? "player-label" : "" });
+        m.addTo(creatureLayer);
+        creatureMarks.set(key, m);
+      } else {
+        m.setLatLng([c.z, c.x]);
+        m.setStyle(style);
+        m.setTooltipContent(text);
+      }
+    }
+    for (const [k, m] of creatureMarks) if (!seen.has(k)) { creatureLayer.removeLayer(m); creatureMarks.delete(k); }
+  }
+  function maybeRefreshCreatures(version) {
+    if (version === undefined || version === creaturesVersion || creaturesFetching || !showCreatures) return;
+    creaturesFetching = true;
+    fetch("creatures" + q).then(r => r.ok ? r.json() : null).then(d => {
+      if (d) { creaturesData = d; creaturesVersion = d.version; drawCreatures(); }
+    }).catch(() => {}).finally(() => { creaturesFetching = false; });
+  }
+  if (showCreatures) creatureLayer.addTo(map);
+
+  // Deaths per player (counted by the server since the map was installed): "☠ 3" after the name.
+  let deathsData = null, deathsVersion = -1, deathsFetching = false;
+  function maybeRefreshDeaths(version) {
+    if (version === undefined || version === deathsVersion || deathsFetching) return;
+    deathsFetching = true;
+    fetch("deaths" + q).then(r => r.ok ? r.json() : null).then(d => {
+      if (d) { deathsData = d; deathsVersion = d.version; if (lastState) render(lastState); }
+    }).catch(() => {}).finally(() => { deathsFetching = false; });
+  }
+  const DEATH_CAUSES = ["killed", "fell", "shroud", "drowned"].map(cause => t(cause));
+  function deathsOf(name) {
+    const d = deathsData && deathsData.players && deathsData.players[name];
+    if (!d || !d.count) return null;
+    const parts = (d.causes || []).map((n, i) => n ? n + " " + DEATH_CAUSES[i] : null).filter(Boolean);
+    const ago = d.at ? Math.max(0, Math.round((Date.now() / 1000 - d.at) / 60)) : null;
+    const when = ago === null ? "" : t(" · last ") + (ago < 1 ? t("just now") : ago < 90 ? t("{count} min ago", {count: ago}) : ago < 2160 ? t("{count} h ago", {count: Math.round(ago / 60)}) : t("{count} days ago", {count: Math.round(ago / 1440)}));
+    return { count: d.count, title: d.count + t(d.count === 1 ? " death" : " deaths") + (parts.length ? ": " + parts.join(", ") : "") + when };
+  }
+
+  let basesFetching = false;
+  function maybeRefreshBases(version) {
+    if (version === undefined || version === basesVersion || basesFetching || !rawPoiData) return;
+    basesFetching = true;
+    fetch("bases" + q).then(r => r.ok ? r.json() : null).then(bases => {
+      if (bases) { basesData = bases; basesVersion = bases.version; rebuildPois(); }
+    }).catch(() => {}).finally(() => { basesFetching = false; });
+  }
+
+  function fmtGameTime(t) {
+    if (!t) return null;
+    const minutes = Math.floor(t.raw / 60e9);  // nanoseconds since midnight (day 06:00 = 21600e9)
+    const h = Math.floor(minutes / 60) % 24, m = minutes % 60;
+    return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+  }
+
+  // Weather phenomena of WeatherSystemResource: index -> kind (clouds of layer 0 give the label
+  // when nothing falls).
+  const PHENOMENA = ["fewclouds", "clouds", "overcast", "fewclouds", "rain", "snow", "rain", "blizzard", "rain",
+    "rain", "rain", "rain", "rain"];
+  const WEATHER_LABEL = { rain: "Rain", lightrain: "Light rain", snow: "Snow", lightsnow: "Light snow",
+    blizzard: "Blizzard", overcast: "Overcast", clouds: "Cloudy", fewclouds: "Partly cloudy", clear: "Clear" };
+
+  // A zone drifts along (cos rotation, sin rotation) in (x, z): the client's FUN_140a988e0.
+  function zoneCenter(w, now) {
+    const t = Math.max(0, Math.min(now, w.despawnTime) - w.spawnTime);
+    return [w.spawn[0] + Math.cos(w.rotation) * w.speed * t, w.spawn[1] + Math.sin(w.rotation) * w.speed * t];
+  }
+
+  // Rain and snow the way the game client computes them (FUN_140a9b9e0, docs/RESEARCH.md section
+  // 15) from livemap/weather.json (tools/extract_weather.py) and the server's live zones: per zone
+  // fade x region mask x (1 - exclude mask) x rain mask (rotated, relative to the zone), minus
+  // the phenomenon's threshold; snow = height ramp x snow border mask.
+  let WX = null;
+  function decodeMask(m) {
+    const s = atob(m.bits), data = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) data[i] = s.charCodeAt(i);
+    return { ...m, data };
+  }
+  function maskBit(m, px, py) {
+    if (px < 0 || py < 0 || px >= m.size[0] || py >= m.size[1]) return 0;
+    const x = px - m.offset[0], y = py - m.offset[1];
+    if (x < 0 || y < 0 || x >= m.count[0] || y >= m.count[1]) return 0;
+    const i = y * m.count[0] + x;
+    return (m.data[i >> 3] >> (i & 7)) & 1;
+  }
+  // Bilinear over the 1-bit mask at relative (u, v); tiling masks wrap around.
+  function maskSample(m, u, v, tiling) {
+    const fx = m.size[0] * u - 0.5, fy = m.size[1] * v - 0.5;
+    let x0 = Math.floor(fx), y0 = Math.floor(fy);
+    const tx = fx - x0, ty = fy - y0;
+    let x1 = x0 + 1, y1 = y0 + 1;
+    if (tiling) {
+      const w = m.size[0], h = m.size[1];
+      x0 = ((x0 % w) + w) % w; x1 = ((x1 % w) + w) % w; y0 = ((y0 % h) + h) % h; y1 = ((y1 % h) + h) % h;
+    }
+    const a = maskBit(m, x0, y0), b = maskBit(m, x1, y0), c = maskBit(m, x0, y1), d = maskBit(m, x1, y1);
+    const top = a + (b - a) * tx, bottom = c + (d - c) * tx;
+    return top + (bottom - top) * ty;
+  }
+  const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+  function zoneFade(w, ph, t) {
+    let f = 1;
+    if (ph.fadeIn > 0) f = clamp01((t - w.spawnTime) / ph.fadeIn);
+    if (ph.fadeOut > 0) f *= clamp01((w.despawnTime - t) / ph.fadeOut);
+    return f;
+  }
+  // Region factor of a layer at (x, z): restrict mask x (1 - exclude mask).
+  function regionFactor(layer, x, z) {
+    let v = 1;
+    if (layer.restrict < WX.layerMasks.length) { const m = WX.layerMasks[layer.restrict]; v *= maskSample(m, x * m.w2r[0], z * m.w2r[1]); }
+    if (v > 0 && layer.exclude < WX.layerMasks.length) { const m = WX.layerMasks[layer.exclude]; v *= 1 - maskSample(m, x * m.w2r[0], z * m.w2r[1]); }
+    return v;
+  }
+  // One zone's contribution at (x, z) before the threshold; `region` may be precomputed.
+  function zoneRaw(w, ph, x, z, t, center, region) {
+    let v = zoneFade(w, ph, t);
+    if (v <= 0) return 0;
+    const layer = WX.layers[w.layer];
+    if (layer) v *= region === undefined ? regionFactor(layer, x, z) : region;
+    if (v > 0 && ph.rainMask < WX.rainMasks.length) {
+      const r = Math.max(w.radius, 1), dx = (x - center[0]) / r, dz = (z - center[1]) / r;
+      const cs = Math.cos(w.rotation), sn = Math.sin(w.rotation);
+      v *= maskSample(WX.rainMasks[ph.rainMask], (dz * sn + dx * cs) * 0.5 + 0.5, (dz * cs - dx * sn) * 0.5 + 0.5, ph.tiling);
+    }
+    return Math.min(1, Math.max(0, v - ph.threshold)) / (1 - ph.threshold);
+  }
+  function snowFactor(x, y, z) {
+    if (y === null) {  // no height: the precomputed grid (game height map)
+      const g = WX.snowGrid, n = WX.snowGridN;
+      if (!g) return 0;
+      const i = Math.min(n - 1, Math.max(0, Math.floor(z / WX.worldSize * n))), j = Math.min(n - 1, Math.max(0, Math.floor(x / WX.worldSize * n)));
+      return g[i * n + j] / 255;
+    }
+    const s = clamp01(y * WX.snowRange[0] + WX.snowRange[1]);
+    return s > 0 ? s * maskSample(WX.snowMask, x * WX.snowMask.w2r[0], z * WX.snowMask.w2r[1]) : 0;
+  }
+  // {clear, rain, snow, blizzard} weights at a position (y = height, or null), plus the zone
+  // that adds most.
+  function weatherWeights(weather, x, y, z) {
+    let rain = 0, bliz = 0, top = null, topV = 0;
+    const t = weather.worldTime;
+    for (const w of weather.instances) {
+      const ph = WX.phenomena[w.phenomenon];
+      if (!ph || ph.effect === "None") continue;
+      const v = zoneRaw(w, ph, x, z, t, zoneCenter(w, t));
+      if (ph.effect === "Rain") rain += v; else if (ph.effect === "Blizzard") bliz += v;
+      if (v > topV) { topV = v; top = w; }
+    }
+    rain = Math.min(1, rain); bliz = Math.min(1, bliz); rain = Math.max(0, rain - bliz);
+    const snow = snowFactor(x, y, z);
+    return { clear: 1 - rain - bliz, rain: (bliz + rain) * (1 - snow), snow: snow * rain, blizzard: bliz * snow, zone: top };
+  }
+  function cloudKind(weather) {
+    let kind = "clear";
+    for (const w of weather.instances) {
+      const k = PHENOMENA[w.phenomenon];
+      if (w.layer === 0 && weather.worldTime >= w.spawnTime && weather.worldTime <= w.despawnTime && k) kind = k;
+    }
+    return kind;
+  }
+  // Label for a weather state at a position: what falls there, else the cloud cover.
+  function weatherLabel(weather, pos) {
+    if (!weather || !WX) return null;
+    const w = weatherWeights(weather, pos[0], pos[1], pos[2]);
+    if (w.blizzard >= 0.05) return "blizzard";
+    if (w.snow >= 0.05 && w.snow >= w.rain) return w.snow < 0.35 ? "lightsnow" : "snow";
+    if (w.rain >= 0.05) return w.rain < 0.35 ? "lightrain" : "rain";
+    return cloudKind(weather);
+  }
+  function activeZones(weather) {
+    if (!weather || !WX) return 0;
+    return weather.instances.filter(w => { const ph = WX.phenomena[w.phenomenon]; return ph && ph.effect !== "None" && zoneFade(w, ph, weather.worldTime) > 0; }).length;
+  }
+  // Hover text for a map position with rain or snow (no clickable layer: the POI hit test asks).
+  function weatherTip(latlng) {
+    if (!showWeather || !lastState || !lastState.weather || !WX) return null;
+    const x = latlng.lng, z = latlng.lat, w = weatherWeights(lastState.weather, x, null, z);
+    const fall = Math.max(w.rain, w.snow, w.blizzard);
+    if (fall < 0.05 || !w.zone) return null;
+    const kind = w.blizzard >= fall ? "Blizzard" : w.snow >= fall ? "Snow" : "Rain";
+    const left = Math.max(0, Math.round((w.zone.despawnTime - lastState.weather.worldTime) / 60));
+    const deg = (90 - w.zone.rotation * 180 / Math.PI + 360) % 360;  // compass: 0 = north (+z)
+    const dir = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(deg / 45) % 8];
+    return t(kind) + " · " + Math.round(fall * 100) + " % · " + (left < 1 ? t("ending") : t("about {count} min left", {count: left}))
+      + (w.zone.speed > 0.2 ? " · drifting " + dir + " at " + w.zone.speed.toFixed(1) + " m/s" : "");
+  }
+
+  // The rain and snow actually falling, as a 256 x 256 raster (40 m) over the world, redrawn every
+  // 3 s on its own canvas below the markers; never interactive.
+  const WeatherLayer = L.Layer.extend({
+    onAdd(m) {
+      this._canvas = L.DomUtil.create("canvas", "weather-layer");
+      this._canvas.style.pointerEvents = "none";
+      m.getPanes().overlayPane.appendChild(this._canvas);
+      this._grid = document.createElement("canvas");
+      this._grid.width = this._grid.height = 256;
+      m.on("moveend zoomend resize", this._draw, this);
+      m.on("zoomstart", this._hide, this);
+      this._draw();
+    },
+    onRemove(m) { m.off("moveend zoomend resize", this._draw, this); m.off("zoomstart", this._hide, this); this._canvas.remove(); },
+    _hide() { if (this._canvas) this._canvas.style.opacity = 0; },
+    // Static per layer: the region factor on the grid (computed once).
+    _regions() {
+      if (this._region) return this._region;
+      const n = 256, cell = WX.worldSize / n;
+      this._region = WX.layers.map(layer => {
+        const g = new Float32Array(n * n);
+        for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) g[i * n + j] = regionFactor(layer, (j + 0.5) * cell, (i + 0.5) * cell);
+        return g;
+      });
+      return this._region;
+    },
+    update(weather) {
+      const now = performance.now();
+      // Off (the "Rain and snow" switch): nothing to draw into until it is added again.
+      if (!this._map || !WX || !weather || (this._last && now - this._last < 3000)) return;
+      this._last = now;
+      const n = 256, cell = WX.worldSize / n, t = weather.worldTime;
+      const rain = new Float32Array(n * n), bliz = new Float32Array(n * n);
+      const regions = this._regions();
+      for (const w of weather.instances) {
+        const ph = WX.phenomena[w.phenomenon];
+        if (!ph || ph.effect === "None" || zoneFade(w, ph, t) <= 0) continue;
+        const c = zoneCenter(w, t), r = w.radius, region = regions[w.layer];
+        const j0 = Math.max(0, Math.floor((c[0] - r) / cell)), j1 = Math.min(n - 1, Math.ceil((c[0] + r) / cell));
+        const i0 = Math.max(0, Math.floor((c[1] - r) / cell)), i1 = Math.min(n - 1, Math.ceil((c[1] + r) / cell));
+        const out = ph.effect === "Blizzard" ? bliz : rain;
+        for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+          const k = i * n + j, reg = region ? region[k] : 1;
+          if (reg <= 0) continue;
+          out[k] += zoneRaw(w, ph, (j + 0.5) * cell, (i + 0.5) * cell, t, c, reg);
+        }
+      }
+      const ctx = this._grid.getContext("2d"), img = ctx.createImageData(n, n), px = img.data;
+      let any = false;
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+        const k = i * n + j;
+        let r = Math.min(1, rain[k]), b = Math.min(1, bliz[k]);
+        r = Math.max(0, r - b);
+        const fall = r + b;
+        if (fall < 0.02) continue;
+        const s = WX.snowGrid ? WX.snowGrid[k] / 255 : 0, o = ((n - 1 - i) * n + j) * 4;  // row 0 of the image = north
+        px[o] = 80 + 175 * s; px[o + 1] = 150 + 100 * s; px[o + 2] = 255; px[o + 3] = Math.round(105 * Math.min(1, fall * 1.4));
+        any = true;
+      }
+      ctx.putImageData(img, 0, 0);
+      this._any = any;
+      this._draw();
+    },
+    _draw() {
+      const m = this._map;
+      if (!m || !this._canvas) return;
+      const size = m.getSize(), c = this._canvas;
+      if (c.width !== size.x || c.height !== size.y) { c.width = size.x; c.height = size.y; }
+      L.DomUtil.setPosition(c, m.containerPointToLayerPoint([0, 0]));
+      const ctx = c.getContext("2d");
+      ctx.clearRect(0, 0, size.x, size.y);
+      c.style.opacity = 1;
+      if (!this._any) return;
+      const a = m.latLngToContainerPoint([WX.worldSize, 0]), b = m.latLngToContainerPoint([0, WX.worldSize]);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(this._grid, a.x, a.y, b.x - a.x, b.y - a.y);
+    },
+  });
+  // Deadly shroud: every shroud zone's level from the game's map data (shroud.png, 2048 x 2048,
+  // 5 m per pixel, row 0 = north; tools/extract_shroud.py) against the world's Flame level the
+  // server reports. As on the game's map, a zone above the Flame level gets the pink "dangerous"
+  // look; the base map already shows the normal shroud. Own pane under the weather and markers.
+  let SHROUD = null;            // { n, level: Uint8Array }
+  let shroudFlame;              // the Flame level the overlay was last drawn for
+  map.createPane("shroud").style.zIndex = 390;
+  map.getPane("shroud").style.pointerEvents = "none";
+  const shroudOverlay = L.imageOverlay("data:image/gif;base64,R0lGODlhAQABAAAAACw=", [[0, 0], [10240, 10240]],
+    { pane: "shroud", interactive: false });
+  function flameLevel() { return lastState && Number.isInteger(lastState.flameLevel) ? lastState.flameLevel : null; }
+  function shroudLabel() {
+    const el = document.getElementById("shroudLabel");
+    if (!el) return;
+    const flame = flameLevel();
+    el.textContent = flame !== null ? t("Deadly shroud (above Flame level {level})", {level: flame})
+      : t(lastState && !("flameLevel" in lastState) ? "Deadly shroud (needs the server part 1.4)" : "Deadly shroud");
+  }
+  function drawShroud() {
+    const flame = flameLevel();
+    if (!SHROUD || flame === shroudFlame) return;
+    shroudFlame = flame;
+    shroudLabel();
+    const n = SHROUD.n, c = document.createElement("canvas");
+    c.width = c.height = n;
+    const ctx = c.getContext("2d"), img = ctx.createImageData(n, n), px = img.data;
+    if (flame !== null) {
+      for (let i = 0; i < n * n; i++) {
+        const l = SHROUD.level[i];
+        if (l >= 1 && l <= 10 && l > flame) { px[4 * i] = 255; px[4 * i + 1] = 60; px[4 * i + 2] = 170; px[4 * i + 3] = 115; }
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    c.toBlob(b => {
+      const old = shroudOverlay._url;
+      shroudOverlay.setUrl(URL.createObjectURL(b));
+      if (old && old.startsWith("blob:")) URL.revokeObjectURL(old);
+    });
+  }
+  function shroudLevelAt(x, z) {
+    if (!SHROUD) return 0;
+    const n = SHROUD.n, col = Math.floor(x / 10240 * n), row = Math.floor((1 - z / 10240) * n);
+    if (col < 0 || row < 0 || col >= n || row >= n) return 0;
+    const l = SHROUD.level[row * n + col];
+    return l >= 1 && l <= 10 ? l : 0;
+  }
+  function shroudTip(latlng) {
+    if (!showShroud) return null;
+    const l = shroudLevelAt(latlng.lng, latlng.lat);
+    if (!l) return null;
+    const flame = flameLevel();
+    return t("Shroud level {level}", {level: l}) + (flame === null ? "" : t(l > flame ? " · deadly at Flame level {level}" : " · Flame level {level} is enough", {level: flame}));
+  }
+  function setShroudShown(on) {
+    showShroud = on;
+    try { localStorage.setItem("livemap.shroud", on ? "1" : "0"); } catch {}
+    if (on) shroudOverlay.addTo(map); else shroudOverlay.remove();
+  }
+  fetch("shroud.png" + q).then(r => r.ok ? r.blob() : null)
+    .then(b => b && createImageBitmap(b, { colorSpaceConversion: "none", premultiplyAlpha: "none" }))
+    .then(bmp => {
+      if (!bmp) return;
+      const c = document.createElement("canvas");
+      c.width = bmp.width; c.height = bmp.height;
+      const ctx = c.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(bmp, 0, 0);
+      const d = ctx.getImageData(0, 0, bmp.width, bmp.height).data, level = new Uint8Array(bmp.width * bmp.height);
+      for (let i = 0; i < level.length; i++) level[i] = d[4 * i];
+      SHROUD = { n: bmp.width, level };
+      shroudFlame = undefined;
+      drawShroud();
+    }).catch(() => {});
+  if (showShroud) shroudOverlay.addTo(map);
+
+  // Fog of war: the explored grid of the chosen player(s) as a dark veil over unexplored land,
+  // in its own pane above the shroud and below weather and markers. As on the game's map the edge
+  // is soft (the grid blurred over about 100 m) and land clears over 0.8 s instead of at once.
+  // One canvas pixel per grid cell, stretched over the world by the browser (smoothly); an image
+  // overlay that takes a canvas, so Leaflet moves and zooms it like the other overlays.
+  const FOG_ALPHA = 190, FOG_FADE_MS = 800;
+  map.createPane("fog").style.zIndex = 395;
+  map.getPane("fog").style.pointerEvents = "none";
+  const CanvasOverlay = L.ImageOverlay.extend({
+    _initImage() {
+      const el = this._image = this._url;
+      L.DomUtil.addClass(el, "leaflet-image-layer");
+      if (this._zoomAnimated) L.DomUtil.addClass(el, "leaflet-zoom-animated");
+    },
+  });
+  const fog = { canvas: document.createElement("canvas"), cur: null, target: null, img: null, dirty: false, raf: 0, last: 0 };
+  const fogOverlay = new CanvasOverlay(fog.canvas, [[0, 0], [10240, 10240]], { pane: "fog", interactive: false });
+  // Explored share of the area around every cell (row 0 = south): a 5 x 5 box blur, twice, so
+  // about a Gaussian; outside the world counts as unexplored.
+  function fogTarget() {
+    const { n, g } = exploredGrid(), a = new Float32Array(n * n), b = new Float32Array(n * n), R = 2, W = 2 * R + 1;
+    for (let i = 0; i < n * n; i++) a[i] = g[i];
+    for (let pass = 0; pass < 2; pass++) {
+      for (let row = 0; row < n; row++) {            // along the rows: a -> b
+        const o = row * n;
+        let s = 0;
+        for (let col = 0; col < R; col++) s += a[o + col];
+        for (let col = 0; col < n; col++) {
+          if (col + R < n) s += a[o + col + R];
+          if (col - R - 1 >= 0) s -= a[o + col - R - 1];
+          b[o + col] = s / W;
+        }
+      }
+      for (let col = 0; col < n; col++) {            // along the columns: b -> a
+        let s = 0;
+        for (let row = 0; row < R; row++) s += b[row * n + col];
+        for (let row = 0; row < n; row++) {
+          if (row + R < n) s += b[(row + R) * n + col];
+          if (row - R - 1 >= 0) s -= b[(row - R - 1) * n + col];
+          a[row * n + col] = s / W;
+        }
+      }
+    }
+    for (let i = 0; i < n * n; i++) a[i] = FOG_ALPHA * (1 - Math.min(1, a[i]));
+    return a;
+  }
+  function fogFrame(now) {
+    fog.raf = 0;
+    if (!showFog || (!EXP && !DISC)) return;
+    if (fog.dirty) {
+      fog.dirty = false;
+      fog.target = fogTarget();
+      const n = Math.round(Math.sqrt(fog.target.length));
+      if (!fog.cur || fog.cur.length !== fog.target.length) {   // first picture: no fade
+        fog.cur = fog.target.slice();
+        fog.canvas.width = fog.canvas.height = n;
+        fog.img = fog.canvas.getContext("2d").createImageData(n, n);
+        for (let i = 0; i < n * n; i++) { fog.img.data[4 * i] = 18; fog.img.data[4 * i + 1] = 14; fog.img.data[4 * i + 2] = 26; }
+        fog.last = now;
+      }
+    }
+    const n = fog.canvas.width, cur = fog.cur, target = fog.target, px = fog.img.data;
+    const step = FOG_ALPHA * Math.min(100, now - fog.last) / FOG_FADE_MS;
+    fog.last = now;
+    let moving = false;
+    for (let row = 0; row < n; row++) {
+      const o = (n - 1 - row) * n;                    // image row 0 = north
+      for (let col = 0; col < n; col++) {
+        const i = row * n + col, d = target[i] - cur[i];
+        if (d === 0) { px[4 * (o + col) + 3] = cur[i]; continue; }
+        cur[i] = d > step ? cur[i] + step : d < -step ? cur[i] - step : target[i];
+        if (cur[i] !== target[i]) moving = true;
+        px[4 * (o + col) + 3] = cur[i];
+      }
+    }
+    fog.canvas.getContext("2d").putImageData(fog.img, 0, 0);
+    if (moving) fog.raf = requestAnimationFrame(fogFrame);
+  }
+  function drawFog() {
+    fog.dirty = true;
+    if (!fog.raf) fog.raf = requestAnimationFrame(fogFrame);
+  }
+  function setFogShown(on) {
+    showFog = on;
+    try { localStorage.setItem("livemap.fog", on ? "1" : "0"); } catch {}
+    if (on) { fog.cur = null; fogOverlay.addTo(map); drawFog(); } else fogOverlay.remove();
+  }
+  if (showFog) fogOverlay.addTo(map);
+
+  const weatherLayer = new WeatherLayer();
+  function setWeatherShown(on) {
+    showWeather = on;
+    try { localStorage.setItem("livemap.weather", on ? "1" : "0"); } catch {}
+    if (on) { weatherLayer.addTo(map); weatherLayer._last = 0; if (lastState) weatherLayer.update(lastState.weather); }
+    else weatherLayer.remove();
+  }
+  if (showWeather) weatherLayer.addTo(map);
+  // Looted chests refill with time: redraw the markers once a minute.
+  setInterval(() => { if (!document.hidden) poiLayer.invalidate(); }, 60000);
+  // Console and test access: livemap.weather.weights([x, y, z]) etc.
+  // For tools/perf/chest_check.mjs: the looted chests and what the page makes of them.
+  // Search: places and regions from the game's labels, named markers and the players online.
+  // Names that start with the text come first, then the ones with a word starting with it, then
+  // the rest; Enter or a click flies there and rings the spot.
+  const searchBox = document.getElementById("searchBox"), searchList = document.getElementById("searchResults");
+  let searchHits = [], searchPick = 0, searchPing = null;
+  function searchEntries() {
+    const out = [], seen = new Set();
+    const add = (name, kind, x, z, zoom, p) => {
+      const key = name + "|" + Math.round(x / 80) + "|" + Math.round(z / 80);
+      if (!seen.has(key)) { seen.add(key); out.push({ name, kind, x, z, zoom, p }); }
+    };
+    for (const p of (lastState && lastState.players) || []) if (p.pos) add(p.name || t("Player") + " " + p.entity, "Player", p.pos[0], p.pos[2], 0);
+    for (const [name, x, z] of (rawPoiData && rawPoiData.regions) || []) add(name, "Region", x, z, -2);
+    for (const [name, x, z] of PLACES) add(name, "Place", x, z, 0);
+    if (LOOT) for (const it of LOOT.items) out.push({ name: it[1], kind: "Item", x: null, z: null, zoom: 0, item: it });
+    if (poiData) for (const p of poiData.pois) {
+      if (!p[4] || p.isFind) continue;
+      const c = poiData.categories[p[0]];
+      add(String(p[4]).split(" · ").pop(), c ? kindOf(c) : "Marker", p[1], p[3], 0.5, p);
+    }
+    return out;
+  }
+  // A category's label for one point: "Flame Shrines & Temples" -> "Flame Shrine & Temple".
+  const kindOf = cat => cat.label.replace(/([^s\W])s\b/g, "$1");
+  // The kind is left out when the name already says it ("Gold chest", "Flame Shrine").
+  const kindShown = h => {
+    const words = h.kind.toLowerCase().split(/[\s&]+/).filter(Boolean);
+    return h.name.toLowerCase().split(/\s+/).every(w => words.includes(w)) ? "" : h.kind;
+  };
+  // "Where do I get it?" (web/loot.json, built by tools/build_drops.py and tools/loot_for_page.py
+  // from the game's loot tables; fetched the first time the search is used): every item with its
+  // best sources and their chance, and per source its places (chests, enemies' spawn points,
+  // containers) or, for plants and scatter loot found everywhere, its regions. Picking an item
+  // lists its sources; picking a source rings all its places and flies to the nearest.
+  let LOOT = null, lootLoading = false;
+  function loadLoot() {
+    if (LOOT || lootLoading) return;
+    lootLoading = true;
+    fetch("loot.json" + q).then(r => r.ok ? r.json() : null).then(d => {
+      if (d) { LOOT = d; if (searchBox.value.trim().length >= 2 && !searchList.querySelector("li.head")) runSearch(); }
+    }).catch(() => {}).finally(() => { lootLoading = false; });
+  }
+  const SOURCE_KINDS = { enemy: "Enemy", chest: "Chest", container: "Container", node: "Pickup" };
+  function chanceText(c, kind) {
+    if (c >= 0.995) return t("always");
+    const p = c * 100, per = kind === "enemy" ? " per kill" : kind === "chest" ? " per chest" : "";
+    return (p >= 10 ? Math.round(p) : p >= 1 ? p.toFixed(1) : p.toFixed(2)) + " %" + per;
+  }
+  const lootRenderer = L.canvas({ padding: 0.3 });
+  const lootLayer = L.layerGroup().addTo(map);
+
+  // Who "you" are for distances: the followed player, else the one picked under Discovered while
+  // online, else the only player online.
+  function searchMe() {
+    const ps = ((lastState && lastState.players) || []).filter(p => p.pos);
+    const nameOf = p => p.name || t("Player") + " " + p.entity;
+    return (follow !== null && ps.find(p => p.entity === follow)) || (discBy && ps.find(p => nameOf(p) === discBy))
+      || (ps.length === 1 ? ps[0] : null);
+  }
+  // The game draws no region borders; a point belongs to the region whose name (at its Ancient
+  // Spire) is nearest, which is right except close to a border.
+  function regionAt(x, z) {
+    let best = null, bd = Infinity;
+    for (const [name, rx, rz] of (rawPoiData && rawPoiData.regions) || []) {
+      const d = (rx - x) ** 2 + (rz - z) ** 2;
+      if (d < bd) { bd = d; best = name; }
+    }
+    return best;
+  }
+  const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  function awayText(from, x, z) {
+    const dx = x - from[0], dz = z - from[1], d = Math.hypot(dx, dz);
+    if (d < 25) return t("here");
+    const dir = COMPASS[Math.round(((Math.atan2(dx, dz) * 180 / Math.PI) + 360) % 360 / 45) % 8];
+    return (d < 1000 ? Math.round(d / 10) * 10 + " m " : (d / 1000).toFixed(1) + " km ") + dir;
+  }
+  // Discovered by the player(s) chosen under Discovered: the game's own state for places with a
+  // key, else the explored area. null = not known (no data, or a kind that is never filtered).
+  function searchKnown(h) {
+    if (h.kind === "Player" || h.kind === "Region" || !discNames().length) return null;
+    if (h.p) return discKnown(h.p);
+    return EXP ? exploredAt(h.x, h.z) : null;
+  }
+  // Names that start with the text first, then a word starting with it, then the rest; a kind of
+  // point ("gold", "spire", "shrine") adds its five nearest points. Within a rank: players,
+  // regions, places, markers, then the nearest first. Each result says its region, how far and
+  // which way from you, and when the chosen player has not discovered it yet.
+  function runSearch() {
+    const q = searchBox.value.trim().toLowerCase();
+    const me = searchMe(), c = map.getCenter();
+    const from = me ? [me.pos[0], me.pos[2]] : [c.lng, c.lat];
+    searchHits = [];
+    if (q.length >= 2) {
+      const rank = n => { const s = n.toLowerCase(); return s.startsWith(q) ? 0 : s.split(/[\s'"(-]+/).some(w => w.startsWith(q)) ? 1 : s.includes(q) ? 2 : 9; };
+      const order = { Player: 0, Region: 1, Place: 2, Item: 4 };
+      const far = e => e.x === null ? 0 : (e.x - from[0]) ** 2 + (e.z - from[1]) ** 2;
+      const hits = searchEntries().map(e => ({ ...e, r: rank(e.name) })).filter(e => e.r < 9);
+      if (poiData && q.length >= 3) poiData.categories.forEach((cat, ci) => {
+        if (!cat.label.toLowerCase().split(/[\s&]+/).some(w => w.startsWith(q))) return;
+        const kind = kindOf(cat);
+        poiData.pois.filter(p => p[0] === ci).map(p => ({ name: p[4] ? String(p[4]).split(" · ").pop() : kind, kind, x: p[1], z: p[3], zoom: 0.5, p: p.isFind ? null : p, r: 1.5 }))
+          .sort((a, b) => far(a) - far(b)).slice(0, 5)
+          .forEach(e => { if (!hits.some(h => h.name === e.name && Math.abs(h.x - e.x) < 80 && Math.abs(h.z - e.z) < 80)) hits.push(e); });
+      });
+      searchHits = hits.sort((a, b) => a.r - b.r || (order[a.kind] ?? 3) - (order[b.kind] ?? 3) || far(a) - far(b) || a.name.localeCompare(b.name)).slice(0, 8);
+    }
+    searchPick = 0;
+    const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    for (const h of searchHits) {
+      if (h.kind === "Item") {
+        const best = h.item[2][0], g = LOOT.groups[best[0]];
+        h.meta = esc("best: " + g[0] + ", " + chanceText(best[1], g[1]) + (h.item[2].length > 1 ? " · " + h.item[2].length + " sources" : ""));
+        continue;
+      }
+      const known = searchKnown(h), parts = [];
+      if (h.kind !== "Region" && h.kind !== "Player") { const r = regionAt(h.x, h.z); if (r) parts.push(esc(r)); }
+      if (me && !(h.kind === "Player" && h.x === me.pos[0] && h.z === me.pos[2])) parts.push(esc(awayText(from, h.x, h.z)));
+      if (known === false) parts.push('<span class="nd">not discovered</span>');
+      h.meta = parts.join(" · ");
+    }
+    const meName = me ? me.name || t("Player") + " " + me.entity : "";
+    searchList.innerHTML = searchHits.map((h, i) => '<li role="option" data-i="' + i + '" aria-selected="' + (i === searchPick) + '"><span>'
+      + esc(h.name) + '</span><span class="k">' + esc(kindShown(h)) + "</span>" + (h.meta ? '<span class="m">' + h.meta + "</span>" : "") + "</li>").join("")
+      + (me && searchHits.length ? '<li class="from" aria-hidden="true">Distances from ' + esc(meName) + "</li>" : "");
+  }
+  function showSources(item) {
+    const me = searchMe(), c = map.getCenter(), from = me ? [me.pos[0], me.pos[2]] : [c.lng, c.lat];
+    const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    searchHits = item[2].map(([gi, chance]) => {
+      const g = LOOT.groups[gi], pts = g[4];
+      let near = null;
+      if (pts) for (let i = 0; i < pts.length; i += 2) {
+        const d = (pts[i] - from[0]) ** 2 + (pts[i + 1] - from[1]) ** 2;
+        if (!near || d < near.d) near = { d, x: pts[i], z: pts[i + 1] };
+      }
+      const regions = LOOT.regions.filter((_, i) => (g[3] >> i) & 1);
+      const where = near ? g[2] + (g[2] === 1 ? " place" : " places") + " · nearest " + awayText(from, near.x, near.z)
+        : "found in " + (regions.length > 3 ? regions.length + " regions" : regions.join(", ") || "the world");
+      return { name: g[0], kind: SOURCE_KINDS[g[1]] || g[1], source: true, g, item, x: near ? near.x : null, z: near ? near.z : null, zoom: -0.5,
+        chance, d: near ? near.d : Infinity, meta: esc(chanceText(chance, g[1]) + " · " + where) };
+    }).sort((a, b) => Math.abs(a.chance - b.chance) > 0.02 ? b.chance - a.chance : a.d - b.d);   // about as likely: the nearest first
+    searchPick = 0;
+    searchBox.value = item[1];
+    const meName = me ? me.name || t("Player") + " " + me.entity : "";
+    searchList.innerHTML = '<li class="head" aria-hidden="true">' + t("Where to get {item}", {item: esc(item[1])}) + "</li>"
+      + searchHits.map((h, i) => '<li role="option" data-i="' + i + '" aria-selected="' + (i === searchPick) + '"><span>' + esc(h.name)
+        + '</span><span class="k">' + esc(h.kind) + '</span><span class="m">' + h.meta + "</span></li>").join("")
+      + (me ? '<li class="from" aria-hidden="true">Distances from ' + esc(meName) + "</li>" : "");
+  }
+  function stopFollowing() {
+    if (follow !== null) { followName = null; setFollow(null); }
+  }
+  function showSource(h) {
+    lootLayer.clearLayers();
+    stopFollowing();
+    const pts = h.g[4];
+    if (pts) for (let i = 0; i < pts.length; i += 2) {
+      L.circleMarker([pts[i + 1], pts[i]], { renderer: lootRenderer, radius: 6, color: "#f6dca0", weight: 2, fillColor: "#e8b04a", fillOpacity: 0.35,
+        interactive: false }).addTo(lootLayer);
+    }
+    searchList.querySelectorAll("li[data-i]").forEach(li => li.setAttribute("aria-selected", String(+li.dataset.i === searchHits.indexOf(h))));
+    if (h.x === null) return;
+    map.setView([h.z, h.x], Math.max(map.getZoom(), h.zoom), { animate: true });
+    if (searchPing) searchPing.remove();
+    searchPing = L.marker([h.z, h.x], { interactive: false, icon: L.divIcon({ className: "search-ping", iconSize: [44, 44], iconAnchor: [22, 22] }) }).addTo(map);
+    setTimeout(() => { if (searchPing) { searchPing.remove(); searchPing = null; } }, 4500);
+  }
+  function goTo(hit) {
+    if (hit.kind === "Item") return showSources(hit.item);
+    if (hit.source) return showSource(hit);
+    lootLayer.clearLayers();
+    stopFollowing();
+    map.setView([hit.z, hit.x], Math.max(map.getZoom(), hit.zoom), { animate: true });
+    if (searchPing) searchPing.remove();
+    searchPing = L.marker([hit.z, hit.x], { interactive: false, icon: L.divIcon({ className: "search-ping", iconSize: [44, 44], iconAnchor: [22, 22] }) }).addTo(map);
+    setTimeout(() => { if (searchPing) { searchPing.remove(); searchPing = null; } }, 4500);
+    searchBox.value = hit.name;
+    searchList.innerHTML = "";
+    searchHits = [];
+  }
+  searchBox.addEventListener("input", runSearch);
+  searchBox.addEventListener("focus", loadLoot);
+  searchBox.addEventListener("keydown", e => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (!searchHits.length) return;
+      e.preventDefault();
+      searchPick = (searchPick + (e.key === "ArrowDown" ? 1 : searchHits.length - 1)) % searchHits.length;
+      searchList.querySelectorAll("li[data-i]").forEach((li, i) => li.setAttribute("aria-selected", String(i === searchPick)));
+    } else if (e.key === "Enter" && searchHits.length) {
+      e.preventDefault();
+      goTo(searchHits[searchPick]);
+    } else if (e.key === "Escape") {
+      searchBox.value = ""; searchList.innerHTML = ""; searchHits = []; lootLayer.clearLayers();
+    }
+  });
+  searchList.addEventListener("mousedown", e => { const li = e.target.closest("li[data-i]"); if (li) { e.preventDefault(); goTo(searchHits[+li.dataset.i]); } });
+  window.livemap.deaths = { of: deathsOf, data: () => deathsData };
+  window.livemap.objects = { chests: () => [...chestByPoi].map(([i, c]) => ({ poi: i, empty: c.empty, t: c.t })), data: () => objectsData,
+    creatures: () => [...creatureMarks.values()].map(m => ({ ll: m.getLatLng(), text: m.getTooltip().getContent(), r: m.options.radius })) };
+
+  // A link with &mark=x,z,Name (several joined by ";") puts a pulsing ring with that name on each
+  // spot and opens the map at the first one: to point someone at a place.
+  const MARKS = (new URLSearchParams(location.search).get("mark") || "").split(";")
+    .map(s => s.split(",")).map(([x, z, ...name]) => ({ x: +x, z: +z, name: name.join(",").trim() }))
+    .filter(m => Number.isFinite(m.x) && Number.isFinite(m.z) && (m.x || m.z));
+  function showMarks() {
+    for (const m of MARKS) {
+      const pin = L.marker([m.z, m.x], { interactive: false, zIndexOffset: 900,
+        icon: L.divIcon({ className: "mark-pin", html: '<span class="ring"></span><span class="dot"></span>', iconSize: [44, 44], iconAnchor: [22, 22] }) }).addTo(map);
+      if (m.name) pin.bindTooltip(m.name, { permanent: true, direction: "top", offset: [0, -24], className: "player-label" }).openTooltip();
+    }
+    if (MARKS.length && !followName) map.setView([MARKS[0].z, MARKS[0].x], -1, { animate: false });
+  }
+  window.livemap.marks = () => MARKS;
+  window.livemap.search = { find: text => { searchBox.value = text; runSearch(); return searchHits.map(h => h.name + " · " + h.kind); },
+    meta: () => searchHits.map(h => h.meta.replace(/<[^>]+>/g, "")), me: () => { const m = searchMe(); return m ? m.name : null; },
+    loot: () => LOOT, loadLoot, ringed: () => lootLayer.getLayers().length,
+    go: () => searchHits.length && goTo(searchHits[searchPick]), placesDrawn: () => (poiLayer._placeBoxes || []).length, placeBoxes: () => poiLayer._placeBoxes || [] };
+
+  // Movable panels (wide screens): drag the players, clock or marker panel by its title. It stays
+  // inside the window, snaps to an edge closer than 24 px and is kept relative to the nearest
+  // corner, so it stays put when the window changes size. The browser remembers each panel's place
+  // (livemap.pos.<id>); a double-click on the title puts it back. Phones keep the fixed layout.
+  const wide = matchMedia("(min-width: 601px)");
+  const characterDialog = document.getElementById("characterDialog");
+  const characterFrame = document.getElementById("characterFrame");
+  const characterLoading = document.getElementById("characterLoading");
+  characterDialog.addEventListener("close", () => {
+    characterFrame.removeAttribute("src");
+    characterFrame.hidden = true;
+    characterLoading.hidden = true;
+  });
+  characterFrame.onload = () => {
+    if (!characterDialog.open) return;
+    characterFrame.hidden = false;
+    characterLoading.hidden = true;
+  };
+  document.getElementById("closeCharacter").onclick = () => characterDialog.close();
+  const sheetAvailability = new Map();
+  function characterUrl(id) {
+    return "character?id=" + encodeURIComponent(id) + (key ? "&key=" + encodeURIComponent(key) : "");
+  }
+  function updateSheetButton(button, name, state) {
+    const id = state.playerHistory?.players?.[name]?.steamId || "";
+    if (button.dataset.steamId !== id) {
+      button.dataset.steamId = id;
+      button.disabled = true;
+    }
+    button.setAttribute("aria-label", t(button.disabled ? "Character sheet unavailable" : "Open character sheet") + " — " + name);
+    button.title = t(button.disabled ? "Character sheet unavailable" : "Open character sheet");
+    if (!id) return;
+    let entry = sheetAvailability.get(id);
+    if (!entry || Date.now() >= entry.expires) {
+      entry = { expires: Date.now() + 30000 };
+      entry.promise = fetch(characterUrl(id) + "&check=1", { cache: "no-store" }).then(r => r.ok).catch(() => false);
+      sheetAvailability.set(id, entry);
+      entry.promise.then(available => {
+        entry.available = available;
+        if (button.dataset.steamId === id) {
+          button.disabled = !available;
+          button.title = t(available ? "Open character sheet" : "Character sheet unavailable");
+          button.setAttribute("aria-label", button.title + " — " + name);
+        }
+      });
+    }
+    if (entry.available !== undefined) button.disabled = !entry.available;
+  }
+  function createSheetButton() {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "dot";
+    button.disabled = true;
+    button.onclick = e => {
+      e.stopPropagation();
+      const id = button.dataset.steamId;
+      if (!id || button.disabled) return;
+      characterLoading.hidden = false;
+      characterFrame.hidden = true;
+      characterDialog.showModal();
+      characterFrame.src = characterUrl(id);
+    };
+    return button;
+  }
+  const MOVABLE = ["pois"];
+  const readPos = id => { try { return JSON.parse(localStorage.getItem("livemap.pos." + id) || "null"); } catch { return null; } };
+  const writePos = (id, p) => { try { if (p) localStorage.setItem("livemap.pos." + id, JSON.stringify(p)); else localStorage.removeItem("livemap.pos." + id); } catch {} };
+  let panelZ = 1002;
+  function unplace(el) {
+    for (const k of ["position", "left", "right", "top", "bottom", "maxHeight", "zIndex", "width"]) el.style[k] = "";
+    el.classList.remove("moved");
+  }
+  function place(el, p) {
+    unplace(el);
+    if (!p || !wide.matches) return;
+    el.classList.add("moved");
+    el.style.position = "fixed";
+    el.style.left = el.style.right = el.style.top = el.style.bottom = "auto";   // the stylesheet's sides must not pull too
+    el.style.zIndex = String(panelZ);
+    if (el.id === "pois") el.style.maxHeight = Math.max(160, innerHeight - p.y - 10) + "px";
+    // A smaller window than when it was placed: keep the whole panel in view.
+    const r = el.getBoundingClientRect();
+    el.style[p.h] = Math.max(4, Math.min(p.x, innerWidth - r.width - 4)) + "px";
+    el.style[p.v] = Math.max(4, Math.min(p.y, innerHeight - r.height - 4)) + "px";
+  }
+  function startDrag(el, handle, e) {
+    if (!wide.matches || e.button !== 0 || e.target.closest("button, select, input, a")) return;
+    const r0 = el.getBoundingClientRect(), sx = e.clientX, sy = e.clientY;
+    // The marker panel may go lower than its height allows: it then scrolls in what is left.
+    const keepH = el.id === "pois" ? Math.min(r0.height, 200) : r0.height;
+    let moving = false;
+    handle.setPointerCapture(e.pointerId);
+    const move = ev => {
+      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      if (!moving) {
+        if (Math.hypot(dx, dy) < 4) return;     // a click, not a drag
+        moving = true;
+        unplace(el);
+        el.classList.add("moved", "dragging");
+        el.style.position = "fixed";
+        el.style.right = el.style.bottom = "auto";
+        el.style.width = r0.width + "px";        // same size while it moves
+        el.style.zIndex = String(++panelZ);
+      }
+      const top = Math.max(4, Math.min(r0.top + dy, innerHeight - keepH - 4));
+      el.style.left = Math.max(4, Math.min(r0.left + dx, innerWidth - r0.width - 4)) + "px";
+      el.style.top = top + "px";
+      if (el.id === "pois") el.style.maxHeight = (innerHeight - top - 10) + "px";
+    };
+    const up = ev => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", up);
+      if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId);
+      el.classList.remove("dragging");
+      el.style.width = "";
+      if (!moving) return;
+      const r = el.getBoundingClientRect();
+      const p = r.left + r.width / 2 < innerWidth / 2 ? { h: "left", x: r.left } : { h: "right", x: innerWidth - r.right };
+      // The marker panel hangs from its top (it grows and scrolls downwards); the others take the nearer edge.
+      Object.assign(p, el.id === "pois" || r.top + r.height / 2 < innerHeight / 2 ? { v: "top", y: r.top } : { v: "bottom", y: innerHeight - r.bottom });
+      if (p.y < 24) p.y = 10;
+      if (p.x < 24) p.x = p.h === "left" && p.v === "top" && p.y < 100 ? 54 : 10;   // not over the zoom buttons
+      p.x = Math.round(p.x); p.y = Math.round(p.y);
+      writePos(el.id, p);
+      place(el, p);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+  }
+  for (const id of MOVABLE) {
+    const el = document.getElementById(id), handle = el.querySelector("h2");
+    handle.title = t("Drag to move, double-click to put it back");
+    handle.addEventListener("pointerdown", e => startDrag(el, handle, e));
+    handle.addEventListener("dblclick", e => { if (e.target.closest("button, select, input, a")) return; writePos(id, null); unplace(el); });
+    place(el, readPos(id));
+  }
+  const replaceAll = () => { for (const id of MOVABLE) { const p = readPos(id); if (p || document.getElementById(id).classList.contains("moved")) place(document.getElementById(id), p); } };
+  wide.addEventListener("change", replaceAll);
+  addEventListener("resize", replaceAll);
+  window.livemap.chests = () => [...lootedByPoi.values()].map(c => ({ x: c.x, z: c.z, at: c.at, state: lootState(c) }));
+  window.livemap.discovered = { known: i => discKnown(poiData.pois[i]), state: () => DISC, mode: () => discMode,
+    explored: (x, z) => exploredAt(x, z), exp: () => EXP, regions: () => rawPoiData && rawPoiData.regions,
+    fogAlpha(x, z) {
+      if (!fog.cur) return null;
+      const n = fog.canvas.width, col = Math.floor(x / 10240 * n), row = Math.floor(z / 10240 * n);
+      return col >= 0 && row >= 0 && col < n && row < n ? Math.round(fog.cur[row * n + col]) : null;
+    } };
+  window.livemap.shroud = { levelAt: (x, z) => shroudLevelAt(x, z), flame: () => flameLevel(), ready: () => !!SHROUD && shroudFlame === flameLevel() };
+  window.livemap.weather = {
+    state: () => lastState,
+    weights: pos => weatherWeights(lastState.weather, pos[0], pos[1], pos[2]),
+    label: pos => weatherLabel(lastState.weather, pos),
+    forceUpdate() { weatherLayer._last = 0; weatherLayer.update(lastState.weather); },
+  };
+  fetchJsonRetry("weather.json" + q, null).then(w => {
+    if (!w) return;
+    const decode = m => decodeMask(m);
+    WX = { ...w, snowMask: decode(w.snowMask), layerMasks: w.layerMasks.map(decode), rainMasks: w.rainMasks.map(decode) };
+    if (w.snowGrid) {
+      const s = atob(w.snowGrid.bytes);
+      WX.snowGrid = new Uint8Array(s.length);
+      for (let i = 0; i < s.length; i++) WX.snowGrid[i] = s.charCodeAt(i);
+      WX.snowGridN = w.snowGrid.n;
+    }
+    if (lastState) weatherLayer.update(lastState.weather);
+  });
+
+  // Player list rows are reused; text is only touched when it changes.
+  const playerRows = new Map();
+  const offlineRows = new Map();
+  function renderOfflinePlayers(names, list, state) {
+    const keep = new Set(names);
+    for (const [name, li] of offlineRows) if (!keep.has(name)) { li.remove(); offlineRows.delete(name); }
+    for (const name of names) {
+      let li = offlineRows.get(name);
+      if (!li) {
+        li = document.createElement("li");
+        li.className = "offline";
+        li.innerHTML = '<span class="name"></span><span class="offline-status">offline</span>';
+        li.querySelector(".name").textContent = name;
+        li.prepend(createSheetButton());
+        offlineRows.set(name, li);
+      }
+      updateSheetButton(li.querySelector("button.dot"), name, state);
+      list.appendChild(li);
+    }
+  }
+  let lastClockText = "";
+  // Follow a player: click their row (click again to stop). The map keeps them in the middle and
+  // zooms around them; dragging the map stops it. A link with &follow=<name> follows that player
+  // whenever they are online, also after a relog (for a second screen).
+  let follow = null, followName = new URLSearchParams(location.search).get("follow");
+  const centerZoom = ["scrollWheelZoom", "doubleClickZoom", "touchZoom"].filter(k => map.options[k]);
+  function setFollow(entity) {
+    follow = entity;
+    for (const k of centerZoom) map.options[k] = entity === null ? true : "center";
+    for (const [e, row] of playerRows) row.li.classList.toggle("following", e === entity);
+  }
+  map.on("dragstart", () => { if (follow !== null) { followName = null; setFollow(null); } });
+  function render(state) {
+    lastState = state;
+    maybeRefreshFinds(state.findsVersion);
+    maybeRefreshBases(state.basesVersion);
+    maybeRefreshDeaths(state.deathsVersion);
+    maybeRefreshObjects(state.objectsVersion);
+    maybeRefreshCreatures(state.creaturesVersion);
+    maybeRefreshDiscovered(state.discoveredVersion);
+    maybeRefreshExplored(state.exploredVersion);
+    let revealed = false;
+    for (const p of state.players) if (p.pos && revealLive(p.name, p.pos[0], p.pos[2])) revealed = true;
+    if (revealed) { drawFog(); if (discMode !== "all") poiLayer.schedule(); }
+    if (document.hidden) return;  // nothing to draw in a background tab; the next message catches up
+    weatherLayer.update(state.weather);
+    drawShroud();
+    const flameText = flameLevel() !== null ? String(flameLevel()) : "–";
+    const flameEl = document.getElementById("flameLevel");
+    if (flameEl.textContent !== flameText) flameEl.textContent = flameText;
+    const firstWithPos = state.players.find(p => p.pos);
+    const here = firstWithPos ? weatherLabel(state.weather, firstWithPos.pos) : null;
+    const zones = activeZones(state.weather);
+    const weatherText = here ? t(WEATHER_LABEL[here]) : state.weather ? (zones ? zones + " " + t(zones > 1 ? "rain zones" : "rain zone") : t("Clear")) : "–";
+    const clockText = (fmtGameTime(state.time) || "--:--") + "|" + (state.time ? t(state.time.isDay ? "Day" : "Night") : "–") + "|" + weatherText;
+    if (clockText !== lastClockText) {
+      lastClockText = clockText;
+      const [t, dn, w] = clockText.split("|");
+      document.getElementById("gameTime").textContent = t;
+      document.getElementById("dayNight").textContent = dn;
+      document.getElementById("weather").textContent = w;
+    }
+    const onlineNames = new Set(state.players.map(p => p.name).filter(Boolean));
+    const offlineNames = Object.keys(state.playerHistory?.players || {})
+      .filter(name => !onlineNames.has(name)).sort((a, b) => a.localeCompare(b));
+    const list = document.getElementById("playerList");
+    const placeholder = list.querySelector(".placeholder");   // "Connecting…" until the first state
+    if (placeholder) placeholder.remove();
+    if (!state.players.length && !offlineNames.length) {
+      if (!list.querySelector(".empty")) { list.innerHTML = '<li class="empty">' + t("No players recorded") + '</li>'; playerRows.clear(); offlineRows.clear(); }
+    } else if (list.querySelector(".empty")) list.innerHTML = "";
+    const seen = new Set();
+    for (const p of state.players) {
+      seen.add(p.entity);
+      const color = playerColor(p.entity);
+      const name = p.name || (t("Player") + " " + p.entity);
+
+      const coords = p.pos ? p.pos[0].toFixed(0) + ", " + p.pos[2].toFixed(0) : "–";
+      let row = playerRows.get(p.entity);
+      if (!row) {
+        const li = document.createElement("li");
+        li.innerHTML = '<span class="name"></span><span class="deaths"></span><span class="coords"></span>';
+        li.prepend(createSheetButton());
+        li.title = t("Click to follow, click again to stop");
+        li.querySelector(".dot").style.background = color;
+        list.appendChild(li);
+        row = { li, name: "", coords: "", deaths: "" };
+        playerRows.set(p.entity, row);
+      }
+      if (row.name !== name) { row.li.querySelector(".name").textContent = name; row.name = name; }
+      if (row.coords !== coords) { row.li.querySelector(".coords").textContent = coords; row.coords = coords; }
+      updateSheetButton(row.li.querySelector("button.dot"), name, state);
+      list.appendChild(row.li);
+      const dead = deathsOf(name), deathsKey = dead ? dead.count + "|" + dead.title : "";
+      if (row.deaths !== deathsKey) {
+        const el = row.li.querySelector(".deaths");
+        el.innerHTML = dead ? '<b aria-hidden="true">\u2620\ufe0e</b>' + dead.count : "";
+        el.title = dead ? dead.title : "";
+        if (dead) el.setAttribute("aria-label", dead.title); else el.removeAttribute("aria-label");
+        row.deaths = deathsKey;
+      }
+      if (!p.pos) continue;
+      const ll = toLatLng(p.pos);
+      row.li.onclick = () => {
+        followName = null;
+        if (follow === p.entity) return setFollow(null);
+        setFollow(p.entity);
+        map.setView(ll, Math.max(map.getZoom(), -1));
+      };
+      if (followName && name === followName && follow !== p.entity) { setFollow(p.entity); map.setView(ll, Math.max(map.getZoom(), -1)); }
+      if (follow === p.entity && !map._animatingZoom) map.panTo(ll, { animate: true, duration: 0.25, easeLinearity: 1 });
+      let m = markers.get(p.entity);
+      if (!m) {
+        m = L.marker(ll, { icon: playerIcon(color), interactive: false, zIndexOffset: 1000 })
+          .bindTooltip(name, { permanent: true, direction: "top", offset: [0, -14], className: "player-label" })
+          .addTo(map);
+        markers.set(p.entity, m);
+      } else {
+        m.setLatLng(ll);
+        if (m._name !== name) { m.setTooltipContent(name); m._name = name; }
+      }
+      const el = m.getElement();
+      if (el) {
+        // Heading = the direction the player actually moves over the ground (the server's
+        // orientation follows the camera and spins while looking around). Standing still keeps
+        // the last heading; before the first movement the orientation is used.
+        let deg = m._deg === undefined ? headingDeg(p.rot) : m._deg;
+        const now = Date.now();
+        if (m._track) {
+          const dx = p.pos[0] - m._track.pos[0], dz = p.pos[2] - m._track.pos[2];
+          const dt = (now - m._track.t) / 1000;
+          if (dt >= 0.5) {
+            if (Math.hypot(dx, dz) / dt > 0.8) deg = Math.atan2(dx, dz) * 180 / Math.PI;  // faster than 0.8 m/s
+            m._track = { pos: p.pos, t: now };
+          }
+        } else m._track = { pos: p.pos, t: now };
+        const arrow = el.querySelector(".arrow"), dot = el.querySelector(".dot");
+        if (deg === null) { arrow.style.display = "none"; dot.style.display = ""; }
+        else {
+          // Keep the angle continuous (no jump from 179 to -181), so the CSS transition always
+          // turns the short way instead of spinning once around.
+          const prev = m._deg === undefined ? deg : m._deg;
+          while (deg - prev > 180) deg -= 360;
+          while (deg - prev < -180) deg += 360;
+          m._deg = deg;
+          arrow.style.display = ""; dot.style.display = "none"; arrow.style.transform = "rotate(" + deg.toFixed(1) + "deg)";
+        }
+      }
+    }
+    for (const [entity, row] of playerRows) if (!seen.has(entity)) { row.li.remove(); playerRows.delete(entity); }
+    if (follow !== null && !seen.has(follow)) setFollow(null);
+    for (const [entity, m] of markers) if (!seen.has(entity)) { m.remove(); markers.delete(entity); }
+    for (const entity of colorOf.keys()) if (!seen.has(entity)) colorOf.delete(entity);
+    renderOfflinePlayers(offlineNames, list, state);
+    updateCalibPlayers();
+  }
+
+  function tickRealTime() {
+    const d = new Date();
+    document.getElementById("realTime").textContent =
+      String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  }
+  tickRealTime();
+  setInterval(tickRealTime, 1000);
+
+  const status = document.getElementById("status");
+  let mapErrorText = "";
+  function mapError(text) {
+    if (mapErrorText === text) return;
+    mapErrorText = text;
+    status.textContent = text;
+    status.classList.add("bad");
+    console.error(text);
+  }
+  window.addEventListener("error", e => mapError("page error: " + e.message));
+  window.addEventListener("unhandledrejection", e => mapError("page error: " + (e.reason && e.reason.message || e.reason)));
+  function connect() {
+    const es = new EventSource("events" + q);
+    es.onopen = () => { if (mapErrorText) return; status.textContent = t("live"); status.classList.remove("bad"); };
+    es.onmessage = e => { try { render(JSON.parse(e.data)); } catch (err) { console.error(err); } };
+    es.onerror = () => { if (mapErrorText) return; status.textContent = t("connection lost, retrying…"); status.classList.add("bad"); };
+  }
+  connect();
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && lastState) render(lastState); });
+
+  // Calibration: the player stands somewhere and clicks where that spot is on the current map
+  // image. Two such points give the image's true world bounds (scale and offset per axis).
+  const points = [];
+  const calibBox = document.getElementById("calib");
+  const calibToggle = document.getElementById("calibToggle");
+  // An admin tool: only shown with &calibrate in the link, so players do not stumble on it.
+  if (!new URLSearchParams(location.search).has("calibrate")) calibToggle.style.display = "none";
+  calibToggle.onclick = () => calibBox.classList.add("open");
+  document.getElementById("calibClose").onclick = () => calibBox.classList.remove("open");
+  document.getElementById("calibReset").onclick = () => {
+    points.length = 0;
+    if (layers[currentStyle] && layers[currentStyle].origBounds) layers[currentStyle].setBounds(layers[currentStyle].origBounds);
+    showCalib();
+  };
+  const CALIB_MIN_SPREAD = 300;   // metres between the two spots, on each axis
+  let calibNote = "";
+  function updateCalibPlayers() {
+    const sel = document.getElementById("calibPlayer");
+    const current = sel.value;
+    const opts = (lastState ? lastState.players : []).filter(p => p.pos)
+      .map(p => '<option value="' + p.entity + '">' + (p.name || t("Player") + " " + p.entity).replace(/</g, "&lt;") + "</option>");
+    if (sel.innerHTML !== opts.join("")) { sel.innerHTML = opts.join(""); sel.value = current; }
+  }
+  map.on("click", e => {
+    if (!calibBox.classList.contains("open") || !lastState) return;
+    const entity = Number(document.getElementById("calibPlayer").value);
+    const p = lastState.players.find(x => x.entity === entity && x.pos);
+    if (!p) { calibNote = "Pick a player who is online."; showCalib(); return; }
+    if (!layers[currentStyle].setBounds) {
+      calibNote = "\"" + currentStyle + "\" is drawn from the game's own data and already fits. Calibration is for map images you add yourself.";
+      showCalib();
+      return;
+    }
+    // Where the click lies inside the current image, as a fraction of its width and height.
+    const b = layers[currentStyle].getBounds();
+    const fx = (e.latlng.lng - b.getWest()) / (b.getEast() - b.getWest());
+    const fz = (e.latlng.lat - b.getSouth()) / (b.getNorth() - b.getSouth());
+    if (!isFinite(fx) || !isFinite(fz)) { calibNote = "The map image has no size; press Reset points."; showCalib(); return; }
+    const point = { world: [p.pos[0], p.pos[2]], frac: [fx, fz] };
+    if (points.length) {
+      const first = points[0];
+      const dx = Math.abs(point.world[0] - first.world[0]), dz = Math.abs(point.world[1] - first.world[1]);
+      if (dx < CALIB_MIN_SPREAD || dz < CALIB_MIN_SPREAD) {
+        calibNote = "Too close to the first spot (" + Math.round(dx) + " m sideways, " + Math.round(dz)
+          + " m up/down). Walk at least " + CALIB_MIN_SPREAD + " m in both directions, then click again.";
+        showCalib();
+        return;
+      }
+      points.length = 1;  // first spot + this one
+    }
+    calibNote = "";
+    points.push(point);
+    showCalib();
+  });
+  function showCalib() {
+    document.getElementById("calibPoints").textContent = t("{count} point(s) on {style}", {count: points.length, style: currentStyle});
+    let out = "";
+    if (points.length >= 2) {
+      const [a, b] = [points[0], points[points.length - 1]];
+      // world = min + frac * (max - min), solved per axis from two points.
+      const spanX = (b.world[0] - a.world[0]) / (b.frac[0] - a.frac[0]);
+      const spanZ = (b.world[1] - a.world[1]) / (b.frac[1] - a.frac[1]);
+      const xMin = a.world[0] - a.frac[0] * spanX, zMin = a.world[1] - a.frac[1] * spanZ;
+      const size = (config && config.worldSize) || 10240;
+      // A usable result: finite, not mirrored, and an image between a tenth and ten times the world.
+      const ok = [spanX, spanZ, xMin, zMin].every(Number.isFinite)
+        && spanX > size / 10 && spanX < size * 10 && spanZ > size / 10 && spanZ < size * 10;
+      if (ok) {
+        const bounds = [[+zMin.toFixed(1), +xMin.toFixed(1)], [+(zMin + spanZ).toFixed(1), +(xMin + spanX).toFixed(1)]];
+        out = '"bounds": ' + JSON.stringify(bounds) + "   (for \"" + currentStyle + "\" in livemap/maps.json)";
+        layers[currentStyle].setBounds(L.latLngBounds(bounds));
+      } else {
+        points.length = 1;
+        calibNote = "That second click does not fit the first one (the map would be mirrored or far off). "
+          + "Click exactly where you stand, then try again.";
+      }
+    }
+    if (calibNote) out = calibNote + (out ? "\n" + out : "");
+    document.getElementById("calibOut").value = out;
+  }
+})();
+</script>
+</body>
+</html>

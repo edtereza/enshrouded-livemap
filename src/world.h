@@ -1,0 +1,66 @@
+// What the map shows, read from the running server: players (from the player table), their
+// positions (from the movement system) and the time of day (from the daytime system).
+#pragma once
+
+#include <cstdint>
+#include <string>
+
+#include "bases.h"
+#include "deaths.h"
+#include "discovered.h"
+#include "explored.h"
+#include "finds.h"
+#include "objects.h"
+#include "scan.h"
+
+namespace livemap::world {
+
+// Installs the three hooks. Returns false and fills `error` if any fails; none stays installed.
+bool install(const Targets& targets, std::string& error);
+
+// Re-reads the player table (who is in game, names) so the movement hook knows which entities
+// to record. Call a few times per second from a normal thread.
+void refresh_players();
+
+// The current state as JSON for the web page.
+std::string snapshot_json();
+discovered::Store& player_history();
+void load_player_accounts(const std::string& json);
+void load_guardian_sessions(const std::string& jsonl);
+
+// Which markers each player has discovered (their set knowledge keys); main.cpp refreshes and
+// saves it, web.cpp serves it.
+discovered::Store& discovered_store();
+void refresh_discovered(int64_t unix_now);
+// Where each player has been (300 m around every position seen); main.cpp calls it once a second.
+explored::Store& explored_store();
+void refresh_explored();
+
+// The world's Flame level as the server reports it to Steam (-1 = not known yet); main.cpp sets it.
+void set_flame_level(int level);
+
+// One log line with the time of day and every player's position (diagnostics).
+void log_diagnostics();
+
+// The finds (ore deposits, looted chests) the hooks feed; main.cpp saves it, web.cpp serves it.
+finds::Store& store();
+// Installs the optional mining hook (no-op when the site was not found).
+void install_mining(const Targets& targets);
+// Installs the optional chest hook (no-op when the site was not found).
+void install_chest(const Targets& targets);
+// Flame Altars (player bases) the server's build zone system walks; web.cpp serves them.
+bases::Store& bases_store();
+// Installs the optional bases hooks (no-op when the sites were not found).
+void install_bases(const Targets& targets);
+// Player deaths per name (the death hook counts them); main.cpp saves them, web.cpp serves them.
+deaths::Store& deaths_store();
+// Installs the optional death hook (no-op when the site was not found).
+void install_deaths(const Targets& targets);
+// Chests (looted or not), locks and switches and the creatures around the players, read from the
+// server's loaded world every 2 s once enabled; main.cpp saves the store, web.cpp serves it.
+objects::Store& objects_store();
+void enable_objects();
+// Research switch: after a player joins, post one chat line per message type 0..7.
+void enable_chat_probe(const Targets& targets);
+
+}  // namespace livemap::world

@@ -1,0 +1,167 @@
+# Changelog
+
+## 1.11.3 (2026-11-21)
+- Prepare the maintained source repository for GitHub with the Livemap banner and original-author credits.
+- Remove redundant HD configuration, consolidate test targets and clean stale comments.
+- Include the startup output without the loader line.
+
+## 1.11.2 (2026-11-21)
+- Remove the loader line from the startup console output.
+- Match the Guardian boot example with an unboxed slant ASCII banner and version/repository signature.
+- Print the loaded executable build before the mandatory informational version check.
+
+## 1.11.1 (2026-11-21)
+- Show a Guardian-style Livemap startup banner in the server console.
+- Report version, mode, loader, HTTP readiness, map address and startup failures.
+- Share boxed console output with version notices, independently of file logging.
+
+## 1.11.0 (2026-11-21)
+- Always check the Livemap GitHub stable release synchronously during initialization, before hooks and HTTP start; repeat daily in the background.
+- Log new versions once and repeat the console notice hourly, matching Guardian.
+- Version checks are mandatory and informational; failures or newer releases do not prevent startup and no release files are downloaded or installed.
+- Group notes and lore with Places and alphabetize panel categories by displayed language.
+
+## 1.10.0 (2026-11-21)
+- Include the HD map tiles in the main package alongside the game map.
+- Rename LivemapLauncher.exe to EnshroudedWithLivemap.exe.
+- Add mods/livemap.dll for Shroudtopia activation on clients and dedicated servers.
+- Keep proxy loading as an alternative and prevent duplicate hook initialization.
+- Pin the active module until process exit; stopping or unloading requires a restart.
+
+## 1.9.1 (2026-11-21)
+- Use only Title from livemap.ini for the browser title. Empty or missing uses Enshrouded Live Map.
+
+## 1.8.2 (2026-11-20)
+- Open the character dialog immediately with loading feedback.
+- Load the sheet directly in the frame and gzip-compress its HTTP response.
+- Revalidate cached sheets using ETags so unchanged files are not downloaded again.
+
+## 1.8.1 (2026-11-20)
+- Open Guardian character sheets by clicking the player's colored indicator.
+- Remove the separate eye icon from the unified player list.
+
+## 1.8.0 (2026-11-20)
+- Support dedicated server build 26430253 and local Steam game build 26430625.
+- Local-game launcher and direct player-transform reading for local worlds.
+- Open map access by default, optional RequireKey, and a configurable browser title.
+- One persistent player list with online/offline status and SteamIDs from Guardian.
+- Character-sheet buttons use guardian/<SteamID>/server_save.html, with legacy paths supported.
+- 568 lore markers, with Portuguese and English text and automatic browser-language detection.
+- Place names: the names the game writes on its own map (Pike's Port, Thornhold, Glennwood's
+  End ... 384 of them) as a layer of their own when you zoom in, without overlapping, following
+  the Discovered filter. Switch "Place names" under Overlays.
+- Search: find a place, region, named marker or player by name; Enter or a click flies there.
+  Each result says its region, how far and which way it is from you (the player you follow, or
+  the one picked under Discovered) and when you have not discovered it yet. A kind of point
+  (gold, spire, shrine, well ...) lists the nearest ones first.
+- Every player online gets a colour of their own, up to the game's 16 players.
+- Player names: read exactly as the game stores them (the cause of "Player 3/4" in 1.0.0 is
+  covered by a test now); a name that comes after the player is logged as NAME.
+- Death counter: each player's deaths show next to their name in Players online (hover for
+  killed, fell, shroud or drowned, and when). The server reports every death; the map counts
+  them and keeps them across restarts (livemap/deaths.json). Deaths=0 in livemap.ini turns it off.
+- Where do I get it? Type an item into the search: the enemies that drop it and the chests and
+  containers that can hold it, with their chance and the nearest one; pick one and the map rings
+  all its places. From the game's own loot tables, for 1766 items.
+- Chests the way the server knows them: looted or still full, straight from the game's own state
+  instead of a 30-minute guess (world chests do not seem to refill). Looted chests the map data
+  does not have get their own marker.
+- Locks, magic barriers and switches: picked locks, opened barriers, pulled levers and used secret
+  doors on the map, with when.
+- Creatures near the players, live: enemies (brighter in a fight), animals and bosses with their
+  name, level and health. Switch "Creatures near players" under Overlays. Objects=0 turns all of
+  this off.
+- Point someone at a spot: a link with &mark=<x>,<z>,<name> opens the map there with a ring and
+  the name on it (several spots joined by ;).
+
+## 1.7.0
+- The page now wears the game's own map-screen look: the gold frame, separators and player arrow
+  from the game files, Alegreya type, diamond switches, a compass rose and a metre scale. Player
+  arrows keep their colour. On phones the clock shrinks to the time and the marker panel opens
+  as a sheet from the bottom.
+- Region names: the game's own region labels (Springlands, Revelwood, Kindlewastes ...) in large
+  letters when zoomed out, with their own switch under Overlays.
+- Movable panels: drag the player list, the clock or the marker panel by its title. It snaps to
+  the edges, stays in the window and your browser remembers the place; a double-click on the
+  title puts it back. Phones keep the fixed layout.
+- Panning is smoother: the markers are drawn with a margin and only move while you pan.
+- Ore map: clay pits count as deposits.
+  Needs the server part (iphlpapi.dll) of 1.7.0 for clay and to serve the font file properly.
+
+## 1.6.0
+- Fog of war: a new overlay darkens everything the chosen player (or nobody) has explored yet.
+  The game keeps its real fog in the character save on each player's PC, so the map builds its
+  own: everything within 300 m (the game's own reveal radius) of where the server saw a player,
+  plus 300 m around every place they discovered in the game (that covers the time before the
+  update). Saved in livemap/explored.json. As on the game's map the fog has a soft edge, clears
+  live while a player moves and fades out over a moment instead of all at once.
+- The Discovered filter now works for every marker and per player: towns, dungeons, camps and
+  the like use the game's own discovery state, everything else (shrines, wells, chests, ...)
+  counts as discovered inside that player's explored area.
+  Needs the server part (iphlpapi.dll) of 1.6.0.
+
+## 1.5.0
+- Discovered places: the marker panel can show all places, only the ones discovered, or only the
+  ones not discovered yet, by anyone or by one player. It is the game's own state: the server
+  keeps which places each player has discovered, and the map reads it (297 map places carry
+  it; chests, ore and the like always show). Players keep their discoveries on the map after
+  logging out (saved in livemap/discovered.json). The tooltip says who discovered a place.
+  Discovered=0 in livemap.ini turns it off. Needs the server part (iphlpapi.dll) of 1.5.0.
+
+## 1.4.0
+- Deadly shroud: shroud zones above your world's Flame level are drawn pink, as on the game's
+  own map, with their own switch under Overlays. Hover a shroud zone for its level. The level of
+  every zone comes from the game's map data, the Flame level from the server itself (the number
+  it reports to Steam's server browser). The clock card shows the Flame level.
+  Needs the server part (iphlpapi.dll) of 1.4.0: restart the server after the update.
+
+## 1.3.2
+- Follow a player: click a name in the player list and the map keeps that player in the middle
+  (zooming stays on them too). Click again or drag the map to stop. A link with
+  &follow=<name> follows that player whenever they are online, also after a relog, handy for a
+  second screen.
+
+## 1.3.1
+- Fix: with the "Rain and snow" switch off, the page showed "Cannot read properties of
+  undefined (reading 'getContext')" every few seconds after a reload.
+- The page now says when the pictures of a map style are missing (for example when only the
+  HD file was unzipped over an older install) instead of showing an empty map.
+- HD map style file: its readme says it needs the main file of the same version.
+
+## 1.3.0
+- Markers carry the game's own names: "Ancient Spire · Revelwood" instead of "(capital)".
+- Switch "Rain and snow" at the top of the marker panel to hide the weather overlay.
+- Looted chests come back: after 30 minutes a looted chest shows as full again, the tooltip
+  says when it was looted and when it refills. Chests inside a Flame Altar's build zone stay
+  looted. Other time: "chestRefillMinutes" in livemap/maps.json (0 = never).
+
+## 1.2.0
+- Weather like in the game: rain and snow are computed with the game's own rules (each
+  weather layer only rains inside its region, fade in and out, the zone's rain shape, snow
+  above the snow line). Before, the whole circle counted as rain, so the map could say "Rain"
+  while it was dry in game. The map draws where it really rains or snows instead of circles;
+  hover for strength, time left and drift. Players show Light rain / Rain / Snow.
+- Sharper map at fewer bytes: tiles are WebP now (about a third less image error than the
+  JPEG tiles at 9 % fewer bytes), the same loading speed.
+
+## 1.1.0
+- New: your Flame Altars on the map, live from the server, with the game's altar icon and the
+  size of the build zone. New altars appear within seconds, removed ones disappear. Bases=0 in
+  livemap.ini turns them off.
+- The game's starting Flame Altar (Awakening Chamber) is on the map again; 1.0.1 dropped it
+  together with the teleport platforms.
+- Fixed: player names with special characters showed as garbled symbols.
+
+## 1.0.1
+- Fast travel points: only the real destinations, like on the game's own map. 1.0.0 also listed
+  141 teleport platforms the game never shows (save points inside Fallen Crypts and towers,
+  beacons, braziers). Now: 8 Ancient Spires and the 2 Ancient Lands fast travel points.
+
+## 1.0.0 (first release)
+- Live web map served by the dedicated server: players with names, positions and walking direction, in-game time, real time, weather zones.
+- The game's own map, rendered from the map data inside the game: 1 m per pixel when zoomed in, loaded as tiles.
+- About 3,700 markers from the game's own data in 28 categories with the game's icons; each category can be switched on and off.
+- Ore map that fills itself: 21 deposit kinds with their own icons, who found them and how often they were mined; looted chests turn grey.
+- Shareable link: port = the game's port number over TCP, public address found automatically (or PublicUrl), own key words, short link /<key>, link in livemap.log and in the chat when a player joins.
+- Runs side by side with Shared XP.
+- Server builds 25988414 and 26083076; inactive on unknown builds.
