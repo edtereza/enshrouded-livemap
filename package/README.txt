@@ -1,4 +1,4 @@
-Enshrouded Live Map 1.12.0
+Enshrouded Live Map 1.12.1
 =========================
 
 SHROUDTOPIA PACKAGES (CLIENT AND SERVER)
@@ -9,14 +9,15 @@ Stop the game/server and back up existing DLLs, livemap.ini and shroudtopia.json
 Extract beside enshrouded_server.exe or enshrouded.exe, then restore/merge your settings.
 Keep existing mods such as Guardian enabled when merging shroudtopia.json.
 The included configuration enables "Livemap": { "active": true } under mods.
-Each archive has package-manifest.json with SHA-256 hashes. SHA256SUMS.txt covers all release files.
+Each archive has package-manifest.json with SHA-256 hashes. Releases contain only the two ZIPs.
+Standalone binaries and SHA256SUMS.txt remain available in the GitHub Actions build artifact.
 Loader provenance and licenses are in licenses/. No game files or player data are included.
 Start through Shroudtopia normally. Keep livemap.ini beside the executable.
 Remove Livemap's iphlpapi.dll when using this method. Use only one loading method.
 Restart the game/server to disable or unload Livemap; live unloading is unsupported.
 
 ALTERNATIVE LOADING
-The standalone iphlpapi.dll and EnshroudedWithLivemap.exe are separate release downloads.
+The standalone iphlpapi.dll and EnshroudedWithLivemap.exe are available in the GitHub Actions artifact.
 For this method, copy ONLY livemap/ from a ZIP, without its Shroudtopia DLLs/configuration.
 
 ALTERNATIVE LOCAL GAME (Windows Steam build 26430625, SVN 1287369)
@@ -90,7 +91,9 @@ Home server: set the router's port forwarding for that port to "TCP and UDP".
 Rented server: often open already; otherwise ask for TCP on the game port, or set Port= in
 livemap.ini to a TCP port you have.
 
-SETTINGS (livemap.ini, restart the server after changes)
+SETTINGS (livemap.ini beside the executable, [livemap] section)
+Restart after settings changes except Title, which refreshes within five seconds.
+Save the INI as UTF-8 or UTF-16 to preserve accented names.
 Title=                 browser tab title (empty or missing = Enshrouded Live Map)
 Port=auto              the game's port number over TCP, or a fixed number
 PublicUrl=             your own address, e.g. https://map.example.com (empty = public IP)

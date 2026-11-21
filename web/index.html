@@ -2280,6 +2280,7 @@
   }
   map.on("dragstart", () => { if (follow !== null) { followName = null; setFollow(null); } });
   function render(state) {
+    if (typeof state.title === "string") document.title = state.title.trim() || "Enshrouded Live Map";
     lastState = state;
     maybeRefreshFinds(state.findsVersion);
     maybeRefreshBases(state.basesVersion);

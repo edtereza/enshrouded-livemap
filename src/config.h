@@ -31,4 +31,7 @@ struct Config {
 // Reads livemap.ini from `dir`; writes it with the defaults (and a random key) if it is missing.
 Config load_config(const std::wstring& dir);
 
+// Read only Title from livemap.ini, preserving UTF-8 and supporting Windows INI encodings.
+std::string read_title(const std::wstring& dir);
+
 }  // namespace livemap

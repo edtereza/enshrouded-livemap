@@ -14,5 +14,6 @@ std::string json_string_member(std::string_view json, std::string_view name);
 std::optional<bool> json_bool_member(std::string_view json, std::string_view name);
 
 std::string escape_html(std::string_view text);
+std::string quote_json(std::string_view text);
 
 }  // namespace livemap::text

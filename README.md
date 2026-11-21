@@ -10,7 +10,7 @@ localized lore markers and support for local worlds.
 
 Repository: [edtereza/enshrouded-livemap](https://github.com/edtereza/enshrouded-livemap)
 
-Current version: **1.12.0**. See the [changelog](CHANGELOG.md).
+Current version: **1.12.1**. See the [changelog](CHANGELOG.md).
 
 ## Human and AI contributions
 
@@ -112,7 +112,7 @@ No files are downloaded or installed, and no player or server data is sent.
 | `mods/livemap.dll` with Shroudtopia, or `iphlpapi.dll`; plus `livemap/` | Provide the mod and browser assets. |
 | Steam; `EnshroudedWithLivemap.exe` for local proxy mode | Start the local game with the mod. |
 | A modern browser | Displays the map. |
-| Guardian, for character reports | Generates the character HTML and its shared assets. |
+| [Guardian](https://github.com/edtereza/enshrouded-guardian), for character reports | Generates the character HTML and its shared assets. |
 
 Dedicated-server players access the map through their browser. Install the mod on the machine
 running the server.
@@ -146,8 +146,9 @@ Install one ZIP directly beside the game/server executable. Both include `mods/l
 `shroudtopia.dll`, `winmm.dll`, `shroudtopia.json`, `livemap.ini`, `livemap/` and a
 `package-manifest.json` with file hashes. Back up existing DLLs and configuration first;
 merge the clean defaults with your existing settings, keeping other enabled mods such as Guardian.
-`SHA256SUMS.txt` covers both archives and the standalone binaries. The release also provides
-`livemap.dll`, `iphlpapi.dll` and `EnshroudedWithLivemap.exe` individually.
+Releases are titled `v{version}` and contain only the standard and full ZIPs.
+`SHA256SUMS.txt`, `livemap.dll`, `iphlpapi.dll` and `EnshroudedWithLivemap.exe` remain
+available in the [GitHub Actions build artifacts](https://github.com/edtereza/enshrouded-livemap/actions).
 The proxy DLL and launcher are kept outside the Shroudtopia ZIPs to avoid loading two copies.
 The HD map is included; no separate download is needed. See [HD map credits and instructions](package/README-HD.txt).
 
@@ -175,7 +176,7 @@ requires a process restart; existing hooks and workers remain resident until exi
 The Shroudtopia integration is compiled against its native Windows x64 MSVC interface.
 
 For the alternative loading methods below, download the standalone proxy/launcher binaries
-and copy only `livemap/` from a ZIP. Do not install its Shroudtopia DLLs or configuration
+from the GitHub Actions artifact and copy only `livemap/` from a release ZIP. Do not install its Shroudtopia DLLs or configuration
 when using proxy loading.
 
 ### Dedicated server (alternative proxy loading)
@@ -237,7 +238,7 @@ UpdateMs=250
 | Setting | Default | Behavior |
 | --- | --- | --- |
 | `Enabled` | `1` | Enables the mod. |
-| `Title` | `Enshrouded Live Map` | Sets the browser-tab title. Empty or missing uses the default. |
+| `Title` | `Enshrouded Live Map` | Browser-tab title, reloaded within five seconds. UTF-8 accents are preserved. Empty or missing uses the default. |
 | `Port` | `auto` | Uses the configured game query port over TCP, falling back to `15680`. A number selects a fixed port. |
 | `Bind` | `0.0.0.0` server, `127.0.0.1` local | Selects the network interface. |
 | `PublicUrl` | Empty | Sets the shared address, such as `https://map.example.com`. |
@@ -253,7 +254,10 @@ UpdateMs=250
 | `Objects` | `1` | Enables loaded-world chests, switches and creature information. |
 | `Log` / `LogDiagnostics` | `1` | Controls the log and periodic diagnostic entries. |
 
-The browser title is determined solely by `Title=` or its default.
+The browser title is determined solely by `Title=` in the `[livemap]` section of
+`livemap.ini` beside the executable, or its default. Save the INI as UTF-8 (with or
+without BOM) or UTF-16. Title edits appear within five seconds without restarting;
+the title is sent with live state as well as inserted into the HTML.
 
 For key-protected access, set `RequireKey=1` and `Key=ourmap`. The resulting link uses
 `/?key=ourmap`; the short path `/ourmap` redirects to it.
@@ -326,7 +330,7 @@ packages the project on pushes, pull requests and manual runs. Downloadable ZIPs
 as workflow artifacts.
 
 To publish a release, set the version in `CMakeLists.txt` and the package README, then push
-the corresponding tag, for example `v1.12.0`. The workflow checks that the tag matches the
+the corresponding tag, for example `v1.12.1`. The workflow checks that the tag matches the
 project version before creating the GitHub Release.
 
 Local compilation is available through `build.cmd`, which locates the installed Visual

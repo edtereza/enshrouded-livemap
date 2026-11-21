@@ -56,4 +56,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes --title "Enshrouded Live Map $RELEASE_TAG"
+        run: gh release create "$RELEASE_TAG" dist/*.zip --verify-tag --generate-notes --title "$RELEASE_TAG"

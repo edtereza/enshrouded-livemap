@@ -125,6 +125,17 @@ std::optional<bool> json_bool_member(std::string_view json, std::string_view nam
     return {};
 }
 
+std::string quote_json(std::string_view text) {
+    constexpr char hex[] = "0123456789abcdef";
+    std::string result = "\"";
+    for (const unsigned char c : text) {
+        if (c == '"' || c == '\\') { result += '\\'; result += static_cast<char>(c); }
+        else if (c < 0x20) { result += "\\u00"; result += hex[c >> 4]; result += hex[c & 15]; }
+        else result += static_cast<char>(c);
+    }
+    return result + '"';
+}
+
 std::string escape_html(std::string_view text) {
     std::string result;
     for (const char c : text) {

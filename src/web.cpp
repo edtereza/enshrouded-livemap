@@ -13,6 +13,7 @@
 #include <thread>
 #include <io.h>
 #include <limits>
+#include <mutex>
 #include <zlib.h>
 
 #include "link.h"
@@ -29,7 +30,27 @@ constexpr int kMaxClients = 32;
 Config g_config;
 std::wstring g_web_dir;
 std::wstring g_guardian_dir;
+std::wstring g_config_dir;
+std::mutex g_title_mutex;
+std::string g_title;
+uint64_t g_title_checked = 0;
 std::atomic<int> g_clients{0};
+
+std::string page_title() {
+    std::lock_guard lock(g_title_mutex);
+    const uint64_t now = GetTickCount64();
+    if (!g_title_checked || now - g_title_checked >= 5000) {
+        g_title = read_title(g_config_dir);
+        g_title_checked = now;
+    }
+    return g_title.empty() ? "Enshrouded Live Map" : g_title;
+}
+
+std::string snapshot_json() {
+    auto state = world::snapshot_json();
+    state.insert(1, "\"title\":" + text::quote_json(page_title()) + ",");
+    return state;
+}
 
 bool send_all(SOCKET s, const char* data, size_t size) {
     while (size > 0) {
@@ -158,7 +179,7 @@ void stream_events(SOCKET s) {
         "Connection: keep-alive\r\nX-Accel-Buffering: no\r\n\r\n";
     if (!send_all(s, head, std::strlen(head))) return;
     for (;;) {
-        std::string msg = "data: " + world::snapshot_json() + "\n\n";
+        std::string msg = "data: " + snapshot_json() + "\n\n";
         if (!send_all(s, msg.data(), msg.size())) return;
         Sleep(static_cast<DWORD>(g_config.update_ms));
     }
@@ -196,7 +217,7 @@ void handle(SOCKET s) {
         return;
     }
     if (path == "/state") {
-        send_response(s, "200 OK", "application/json", world::snapshot_json());
+        send_response(s, "200 OK", "application/json", snapshot_json());
         return;
     }
     if (path.starts_with("/assets/")) {
@@ -331,13 +352,13 @@ void handle(SOCKET s) {
         send_response(s, "404 Not Found", "text/plain", "not found\n");
         return;
     }
-    if (rel == "index.html" && !g_config.title.empty()) {
+    if (rel == "index.html") {
         constexpr char opening[] = "<title>";
         const size_t start = body.find(opening);
         if (start != std::string::npos) {
             const size_t value = start + sizeof opening - 1;
             const size_t end = body.find("</title>", value);
-            if (end != std::string::npos) body.replace(value, end - value, text::escape_html(g_config.title));
+            if (end != std::string::npos) body.replace(value, end - value, text::escape_html(page_title()));
         }
     }
     // Map images and icons change only with a new release, data files rarely: let browsers keep
@@ -373,6 +394,7 @@ void serve(SOCKET listener) {
 
 bool start(const Config& config, const std::wstring& exe_dir, std::string& error) {
     g_config = config;
+    g_config_dir = exe_dir;
     g_web_dir = exe_dir + L"\\livemap\\";
     g_guardian_dir = exe_dir + L"\\";
     WSADATA wsa;
@@ -403,6 +425,7 @@ bool start(const Config& config, const std::wstring& exe_dir, std::string& error
     }
     std::thread(serve, listener).detach();
     log("web map listening on %s:%d (TCP)", config.bind.c_str(), config.port);
+    log("browser title: %s", page_title().c_str());
     return true;
 }
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.12.1 (2026-11-21)
+- Preserve UTF-8 titles from livemap.ini, including accents and BOMs.
+- Send the title in live map state and update the browser tab; reload Title changes within five seconds.
+- Keep the default title when Title is empty/missing, without reading the server JSON name.
+- Publish ZIP-only releases titled v{version}; link Guardian in the dependency list.
+
 ## 1.12.0 (2026-11-21)
 - Publish Guardian-style standard and full Shroudtopia ZIPs from the same GitHub build.
 - Bundle the pinned Shroudtopia loader, clean configuration defaults, both map styles and licenses.

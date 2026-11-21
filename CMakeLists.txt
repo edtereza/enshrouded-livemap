@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(enshrouded_livemap VERSION 1.12.0 LANGUAGES CXX ASM_MASM RC)
+project(enshrouded_livemap VERSION 1.12.1 LANGUAGES CXX ASM_MASM RC)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -81,3 +81,8 @@ target_compile_definitions(shroudtopia_test PRIVATE UNICODE _UNICODE WIN32_LEAN_
 set_target_properties(shroudtopia_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/shroudtopia-test")
 add_dependencies(shroudtopia_test livemap)
 add_test(NAME shroudtopia COMMAND shroudtopia_test $<TARGET_FILE:livemap>)
+
+add_executable(title_test tests/title_test.cpp src/config.cpp)
+target_link_libraries(title_test PRIVATE livemap_core bcrypt)
+target_compile_definitions(title_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+add_test(NAME title COMMAND title_test)

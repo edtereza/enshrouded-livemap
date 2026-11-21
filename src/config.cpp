@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <string_view>
+#include <cstring>
 
 #include "link.h"
 #include "text.h"
@@ -39,6 +41,55 @@ std::string utf8(const wchar_t* s, int length) {
 
 }  // namespace
 
+std::string read_title(const std::wstring& dir) {
+    const auto trim = [](std::string_view value) {
+        const size_t first = value.find_first_not_of(" \t\r\n");
+        return first == value.npos ? std::string_view{} :
+            value.substr(first, value.find_last_not_of(" \t\r\n") - first + 1);
+    };
+    const std::wstring path = dir + L"\\livemap.ini";
+    std::string bytes;
+    if (FILE* file = _wfopen(path.c_str(), L"rb")) {
+        char chunk[4096];
+        size_t count;
+        while ((count = std::fread(chunk, 1, sizeof chunk, file)) > 0 && bytes.size() <= 1024 * 1024)
+            bytes.append(chunk, count);
+        std::fclose(file);
+    }
+    if (bytes.size() > 1024 * 1024) return {};
+    if (bytes.starts_with("\xef\xbb\xbf")) bytes.erase(0, 3);
+    // Win32 profile APIs treat UTF-8 as the legacy system code page. Parse valid
+    // UTF-8 directly; retain their native UTF-16/ANSI handling for other files.
+    if (!bytes.empty() && !MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(),
+            static_cast<int>(bytes.size()), nullptr, 0)) {
+        wchar_t value[2048]{};
+        const DWORD length = GetPrivateProfileStringW(L"livemap", L"Title", L"", value, 2048, path.c_str());
+        return std::string(trim(utf8(value, static_cast<int>(length))));
+    }
+    const auto equal = [](std::string_view a, std::string_view b) {
+        return a.size() == b.size() && _strnicmp(a.data(), b.data(), a.size()) == 0;
+    };
+    bool section = false;
+    std::string_view remaining(bytes);
+    while (!remaining.empty()) {
+        const size_t newline = remaining.find('\n');
+        const auto line = trim(remaining.substr(0, newline));
+        remaining = newline == remaining.npos ? std::string_view{} : remaining.substr(newline + 1);
+        if (line.empty() || line.front() == ';' || line.front() == '#') continue;
+        if (line.front() == '[' && line.back() == ']') {
+            section = equal(trim(line.substr(1, line.size() - 2)), "livemap");
+            continue;
+        }
+        const size_t equals = line.find('=');
+        if (!section || equals == line.npos || !equal(trim(line.substr(0, equals)), "Title")) continue;
+        auto value = trim(line.substr(equals + 1));
+        if (value.size() >= 2 && (value.front() == '"' || value.front() == '\'') && value.back() == value.front())
+            value = value.substr(1, value.size() - 2);
+        return text::clean_utf8(trim(value));
+    }
+    return {};
+}
+
 Config load_config(const std::wstring& dir) {
     wchar_t exe[MAX_PATH] = {};
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
@@ -49,7 +100,7 @@ Config load_config(const std::wstring& dir) {
         std::string text =
             "; Live map for Enshrouded dedicated servers.\n"
             "; The link to share is written to livemap.log (\"map link: ...\") and shown in the chat\n"
-            "; when a player joins. Changes take effect after a server restart.\n"
+            "; when a player joins. Settings except Title take effect after a server restart.\n"
             "[livemap]\n"
             "Enabled=1\n"
             "; Browser tab title. Empty or missing = Enshrouded Live Map.\n"
@@ -87,8 +138,7 @@ Config load_config(const std::wstring& dir) {
     c.local_game = local_game;
     c.enabled = GetPrivateProfileIntW(L"livemap", L"Enabled", 1, path.c_str()) != 0;
     wchar_t buf[512];
-    const DWORD title_size = GetPrivateProfileStringW(L"livemap", L"Title", L"", buf, 512, path.c_str());
-    c.title = utf8(buf, static_cast<int>(title_size));
+    c.title = read_title(dir);
     GetPrivateProfileStringW(L"livemap", L"Port", L"auto", buf, 32, path.c_str());
     std::string port = narrow(buf);
     int number = std::atoi(port.c_str());
