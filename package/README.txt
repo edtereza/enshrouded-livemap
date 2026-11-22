@@ -1,4 +1,4 @@
-Enshrouded Live Map 1.12.2
+Enshrouded Live Map 1.12.3
 =========================
 
 SHROUDTOPIA PACKAGES (CLIENT AND SERVER)
@@ -141,3 +141,10 @@ Release page: https://github.com/edtereza/enshrouded-livemap/releases/latest
 STARTUP CONSOLE
 The [Livemap] banner shows version and mode. Startup reports the version check,
 HTTP listener and map address, or a startup failure. Console notices also work with Log=0.
+
+ITEM HISTORY
+Chest tooltips show the known opening player even while the chest is still full.
+New openings use the interaction event actor, not the nearest player.
+Area explored by is based on saved 300 m exploration coverage, including offline players.
+It does not prove that the item was opened or looted. On builds without live discovery
+keys, the filter falls back to those explored areas. Existing histories are preserved.

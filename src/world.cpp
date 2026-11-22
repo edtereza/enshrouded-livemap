@@ -77,7 +77,8 @@ discovered::Store g_discovered;
 discovered::Store g_player_history;
 std::map<uint32_t, std::string> g_guardian_sessions;  // updated and read on the polling thread
 explored::Store g_explored;
-bool g_discovered_off = false;  // layout not recognised once: stop looking
+std::atomic<bool> g_discovered_off{false};  // layout not recognised once: stop looking
+std::atomic<bool> g_legacy_knowledge{true};
 
 // Per-player dynamic knowledge (docs/RESEARCH.md section 17, build 26083076): the player
 // manager holds the knowledge records object at +0x1c8; record = object + (handle & 0x3f) * 0x5620;
@@ -356,19 +357,13 @@ void resolve_types(uintptr_t system, uint16_t offer_index, uintptr_t record) {
     g_types_state.store(found ? 1 : -1, std::memory_order_relaxed);
 }
 
-std::string nearest_player(double x, double z, double within) {
-    int best = -1;
-    double best_d = within * within;
-    for (int i = 0; i < kSlotCount; ++i) {
-        const Slot& s = g_slots[i];
-        if (s.entity.load(std::memory_order_relaxed) == 0 || s.seen_ms.load(std::memory_order_relaxed) == 0) continue;
-        double dx = meters(s.x.load(std::memory_order_relaxed)) - x, dz = meters(s.z.load(std::memory_order_relaxed)) - z;
-        double d = dx * dx + dz * dz;
-        if (d < best_d) { best_d = d; best = i; }
-    }
-    if (best < 0) return {};
+std::string interacting_player(uint32_t guest) {
+    std::vector<finds::Actor> players;
     std::lock_guard lock(g_names_mutex);
-    return g_names[best];
+    for (int i = 0; i < kSlotCount; ++i) {
+        players.push_back({g_slots[i].entity.load(std::memory_order_relaxed), g_names[i]});
+    }
+    return finds::interaction_actor(guest, players);
 }
 
 void on_chest(SafetyHookContext& ctx) {
@@ -396,7 +391,9 @@ void on_chest(SafetyHookContext& ctx) {
     if (!pos) pos = guess_position(record, x, y, z);
     log("CHEST entity %u verb %u random-loot %d position %s%.1f %.1f %.1f", entity, verb, rl, pos ? "" : "unknown ", x, y, z);
     if (!pos || rl == 0) return;
-    g_finds.record_chest(x, y, z, -1, nearest_player(x, z, 12.0), unix_now(), rl);
+    const auto player = interacting_player(guest);
+    g_finds.record_chest(x, y, z, -1, player, unix_now(), rl);
+    log("CHEST opened by %s (guest %u, entity %u)", player.empty() ? "unknown player" : player.c_str(), guest, entity);
 }
 
 // One base in add_buildzones_server's walk: [rbp-0x18] = BaseIdComponent (BaseId +0, wasAbandoned
@@ -613,6 +610,7 @@ void append_weather(std::string& out) {
 finds::Store& store() { return g_finds; }
 bases::Store& bases_store() { return g_bases; }
 discovered::Store& discovered_store() { return g_discovered; }
+bool live_discovery_available() { return g_legacy_knowledge.load() && !g_discovered_off.load(); }
 deaths::Store& deaths_store() { return g_deaths; }
 objects::Store& objects_store() { return g_objects; }
 
@@ -745,6 +743,7 @@ void enable_chat_probe(const Targets& t) {
 }
 
 bool install(const Targets& t, std::string& error) {
+    g_legacy_knowledge.store(t.legacy_knowledge_map);
     g_local_game = t.local_game;
     g_movement_entity_table_offset = t.movement_entity_table_offset;
     if (create(g_player_table_hook, t.player_table, on_player_table, "player_table", error) &&

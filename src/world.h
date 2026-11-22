@@ -24,6 +24,7 @@ void refresh_players();
 
 // The current state as JSON for the web page.
 std::string snapshot_json();
+bool live_discovery_available();
 discovered::Store& player_history();
 void load_player_accounts(const std::string& json);
 void load_guardian_sessions(const std::string& jsonl);

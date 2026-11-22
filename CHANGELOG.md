@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.12.3 (2026-11-22)
+- Restore chest opening attribution in tooltips, including chests that remain full and world-only markers.
+- Resolve the opening player from the interaction event guest entity instead of proximity.
+- Preserve the last identified opening when later events cannot identify a player.
+- Show per-player explored-area history on all item markers and distinguish it from confirmed discoveries.
+- Fall back to explored-area filtering when live knowledge is unavailable for the game build.
+- Add frontend attribution regression checks to GitHub Actions.
+
 ## 1.12.2 (2026-11-21)
 - Automatically publish the project version on every push to main after all build checks pass.
 - Show Bases above Places in the marker panel, preserving alphabetical ordering within groups.

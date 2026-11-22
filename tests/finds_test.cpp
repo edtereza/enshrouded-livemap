@@ -100,7 +100,28 @@ static void ore_like_filter() {
     EXPECT(livemap::finds::is_ore_like("Material_T7_Diamond"));
 }
 
+static void interaction_identity_and_missing_actor() {
+    const std::vector<livemap::finds::Actor> players = {{11, "Alice"}, {22, "Bob"}, {0, "Offline"}};
+    EXPECT(livemap::finds::interaction_actor(22, players) == "Bob");
+    EXPECT(livemap::finds::interaction_actor(0, players).empty());
+    EXPECT(livemap::finds::interaction_actor(99, players).empty());
+    const std::vector<livemap::finds::Actor> ambiguous = {{11, "Alice"}, {11, "Bob"}};
+    EXPECT(livemap::finds::interaction_actor(11, ambiguous).empty());
+    Store s;
+    EXPECT(s.record_chest(10, 20, 30, -1, "Alice", 100));
+    EXPECT(s.record_chest(10, 20, 30, 7, "Alice", 100, 1)); // Metadata can resolve after the initial event.
+    const auto saved = s.to_json();
+    EXPECT(!s.record_chest(10, 20, 30, 7, "", 200, 1));
+    EXPECT(s.to_json() == saved); // Unknown later interactions cannot erase a known opening.
+    EXPECT(s.record_chest(10, 20, 30, 7, "Bob", 300, 1));
+    EXPECT(s.to_json().find("\"by\":\"Bob\"") != std::string::npos);
+    Store restored;
+    EXPECT(restored.from_json(s.to_json()));
+    EXPECT(restored.to_json().find("\"by\":\"Bob\"") != std::string::npos);
+}
+
 int main() {
+    interaction_identity_and_missing_actor();
     hits_within_6m_merge();
     hits_beyond_6m_start_a_new_deposit();
     different_sorts_never_merge();

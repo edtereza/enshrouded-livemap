@@ -10,7 +10,7 @@ localized lore markers and support for local worlds.
 
 Repository: [edtereza/enshrouded-livemap](https://github.com/edtereza/enshrouded-livemap)
 
-Current version: **1.12.2**. See the [changelog](CHANGELOG.md).
+Current version: **1.12.3**. See the [changelog](CHANGELOG.md).
 
 ## Human and AI contributions
 
@@ -47,7 +47,10 @@ for this expanded version.
 - **World state:** loaded chests, locks, barriers, switches and nearby creatures, including
   health and boss information where available.
 - **Time and weather:** game time, real time, rain, snow and shroud overlays.
-- **Exploration and deaths:** explored-area history and persistent death counts.
+- **Exploration and deaths:** explored-area history and persistent death counts. Item tooltips
+  identify confirmed discoveries and the players whose saved explored areas cover a location.
+- **Opening history:** show the known player who opened a chest even when it is still full.
+  New interactions use the event actor instead of guessing from nearby players.
 - **Lore:** 568 placed notes and lore pages with Portuguese and English titles and text.
 - **Automatic language:** Portuguese browsers use Português (Brasil). Other or unidentified
   browser languages use English.
@@ -71,6 +74,10 @@ Dedicated-server startup and HTTP responses have also been checked.
 
 On the November builds, new ore-find detection and live updates to discovered-place knowledge
 are unavailable. Saved records remain readable, and explored areas update from player movement.
+In those builds the discovery filter falls back to explored areas. Tooltips explicitly say
+`Area explored by`, covering 300 m around player paths; that does not confirm an item was
+seen, opened or looted. `Opened by` comes from recorded interaction events. Unidentified
+events do not overwrite an existing named opening. Missing historical events cannot be reconstructed.
 Lore read/unread progress is not tracked. Four lore markers have no localized body text in the
 extracted resources.
 

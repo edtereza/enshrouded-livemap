@@ -8,6 +8,17 @@
 
 namespace livemap::finds {
 
+std::string interaction_actor(uint32_t guest, std::span<const Actor> players) {
+    if (!guest) return {};
+    std::string name;
+    for (const auto& player : players) {
+        if (player.entity != guest || player.name.empty()) continue;
+        if (!name.empty() && name != player.name) return {}; // Ambiguous identities are not guessed.
+        name = player.name;
+    }
+    return name;
+}
+
 namespace {
 
 double dist2(double ax, double az, double bx, double bz) {
@@ -125,11 +136,13 @@ bool Store::record_chest(double x, double y, double z, int poi, const std::strin
     for (Chest& c : chests_) {
         bool same = (poi >= 0 && c.poi == poi) || dist2(c.x, c.z, x, z) <= kChestMatchRadius * kChestMatchRadius;
         if (!same) continue;
-        if (c.by == player && c.at == now) return false;
-        c.by = player;
-        c.at = now;
-        if (poi >= 0) c.poi = poi;
-        if (rl >= 0) c.rl = rl;
+        Chest updated = c;
+        // An unidentifiable later event must not erase a known opening and its time.
+        if (!player.empty() || c.by.empty()) { updated.by = player; updated.at = now; }
+        if (poi >= 0) updated.poi = poi;
+        if (rl >= 0) updated.rl = rl;
+        if (c.by == updated.by && c.at == updated.at && c.poi == updated.poi && c.rl == updated.rl) return false;
+        c = std::move(updated);
         ++version_;
         return true;
     }

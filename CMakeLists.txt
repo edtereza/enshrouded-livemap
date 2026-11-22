@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(enshrouded_livemap VERSION 1.12.2 LANGUAGES CXX ASM_MASM RC)
+project(enshrouded_livemap VERSION 1.12.3 LANGUAGES CXX ASM_MASM RC)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -86,3 +86,10 @@ add_executable(title_test tests/title_test.cpp src/config.cpp)
 target_link_libraries(title_test PRIVATE livemap_core bcrypt)
 target_compile_definitions(title_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 add_test(NAME title COMMAND title_test)
+
+ITEM HISTORY
+Chest tooltips show the known opening player even while the chest is still full.
+New openings use the interaction event actor, not the nearest player.
+Area explored by is based on saved 300 m exploration coverage, including offline players.
+It does not prove that the item was opened or looted. On builds without live discovery
+keys, the filter falls back to those explored areas. Existing histories are preserved.

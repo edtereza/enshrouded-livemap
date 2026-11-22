@@ -6,8 +6,16 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <span>
 
 namespace livemap::finds {
+
+struct Actor {
+    uint32_t entity = 0;
+    std::string name;
+};
+// InteractionAcceptedEvent.guest is the interacting entity, not the nearest player.
+std::string interaction_actor(uint32_t guest, std::span<const Actor> players);
 
 struct Deposit {
     double x, y, z;        // mean position of the hits, metres

@@ -314,7 +314,10 @@ void handle(SOCKET s) {
         return;
     }
     if (path == "/discovered") {
-        send_response(s, "200 OK", "application/json", world::discovered_store().to_json());
+        auto json = world::discovered_store().to_json();
+        json.insert(1, std::string("\"live\":") +
+            (g_config.discovered && world::live_discovery_available() ? "true," : "false,"));
+        send_response(s, "200 OK", "application/json", json);
         return;
     }
     if (path == "/objects") {

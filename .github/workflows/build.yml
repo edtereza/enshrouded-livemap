@@ -30,6 +30,8 @@ jobs:
             throw 'Release tag must match the project version'
           }
           "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Test item attribution in the browser interface
+        run: node --test tests/item-attribution.test.mjs
       - name: Build, test and package
         shell: cmd
         run: call package.cmd

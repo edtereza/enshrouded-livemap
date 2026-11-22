@@ -304,6 +304,11 @@
     "Looted chests":"Baús saqueados", "Flame Altars":"Altares da Chama", "Locks":"Fechaduras", "Switches":"Interruptores",
     "Barriers":"Barreiras", "Character sheet":"Ficha do personagem", "Open character sheet":"Abrir ficha do personagem",
     "Close character sheet":"Fechar ficha", "Text unavailable.":"Texto indisponível.", "Notes and lore":"Bilhetes e lore",
+    "Opened by ":"Aberto por ", "Unknown player":"Jogador desconhecido", "Looted":"Saqueado", "Still full":"Ainda cheio",
+    "Discovered by ":"Descoberto por ", "Area explored by ":"Área explorada por ", "Not discovered yet":"Ainda não descoberto",
+    "Observed on ":"Observado em ", "Opened":"Aberto", "In a base: does not refill":"Dentro de uma base: não reabastece",
+    "Refills in about {count} min":"Reabastece em aproximadamente {count} min", "Should be full again":"Já deve estar cheio novamente",
+    "Live discovery data is unavailable for this build; explored areas cover 300 m around each player's path.":"A descoberta em tempo real está indisponível nesta build; a área explorada cobre 300 m ao redor do caminho de cada jogador.",
     "killed":"morto em combate", "fell":"queda", "shroud":"Mortalha", "drowned":"afogamento",
     " death":" morte", " deaths":" mortes", " · last ":" · última: ", "just now":"agora",
     "{count} min ago":"há {count} min", "{count} h ago":"há {count} h", "{count} days ago":"há {count} dias",
@@ -611,6 +616,31 @@
     const left = c.at + minutes * 60 - Date.now() / 1000;
     return left > 0 ? { left: Math.ceil(left / 60) } : null;
   }
+  function itemText(value) {
+    return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function openingRecord(point) {
+    let best = null, distance = 9;
+    for (const record of findsData?.chests || []) {
+      if (record.rl === false) continue;
+      const d = (record.x - point.x) ** 2 + (record.z - point.z) ** 2;
+      if (d < distance) { distance = d; best = record; }
+    }
+    return best;
+  }
+  function chestHistory(record, real) {
+    let message = "";
+    if (real) message = " · " + t(real.empty ? "Looted" : "Still full") + " · " + t("Observed on ") + fmtDay(real.at);
+    if (!record) return message;
+    const name = record.by?.trim() ? record.by : t("Unknown player");
+    message += " · " + t("Opened by ") + itemText(name) + ", " + fmtDay(record.at);
+    if (!real) {
+      const state = lootState(record);
+      message += " · " + (!state ? t("Should be full again") : state.never ? t("In a base: does not refill")
+        : t("Refills in about {count} min", {count: state.left}));
+    }
+    return message;
+  }
   let iconFiles = {}, poiData = null;
   let hideLooted = (() => { try { return localStorage.getItem("livemap.hideLooted") === "1"; } catch { return false; } })();
   const poiEnabled = {};   // category id -> shown
@@ -912,17 +942,11 @@
       }
       const p = h.p[best];
       const idx = !p.isFind && (lootedByPoi.size || chestByPoi.size) ? poiData.pois.indexOf(p) : -1;
-      const record = idx >= 0 ? lootedByPoi.get(idx) : null, real = idx >= 0 ? chestByPoi.get(idx) : null;
-      let lootText = "";
-      if (real) {
-        lootText = real.empty ? " · looted" + (record ? " by " + record.by : "") + ", seen " + fmtDay(real.at) + " (the server's own state)"
-          : " · still full (the server's own state)";
-      } else if (record) {
-        const st = lootState(record);
-        lootText = st ? " · looted by " + record.by + ", " + fmtDay(record.at)
-            + (st.never ? " · in a base: does not refill" : " · refills in about " + st.left + " min")
-          : " · looted by " + record.by + " " + fmtAgo(record.at) + ", should be full again";
-      }
+      const extra = p[5] || {};
+      const real = (idx >= 0 ? chestByPoi.get(idx) : null) || (extra.real ? extra.chest : null);
+      const record = (idx >= 0 ? lootedByPoi.get(idx) : null) || (!extra.real ? extra.chest : null)
+        || (real ? openingRecord(real) : null);
+      const lootText = chestHistory(record, real);
       this._tip.setLatLng([p[3], p[1]]).setContent(p[4] + " · " + p[2].toFixed(0) + " m" + lootText + discText(p)
         + (under > 1 ? " · +" + (under - 1) + " more here" : ""));
       if (!this._tipOpen) { this._map.openTooltip(this._tip); this._tipOpen = true; }
@@ -992,7 +1016,7 @@
       if (c.rl === false) continue;
       const poi = c.poi !== null && c.poi >= 0 && c.poi < data.pois.length ? c.poi : nearestChest(c.x, c.z);
       if (poi >= 0) lootedByPoi.set(poi, c);
-      else if (c.rl === true) unknownChests.push([ "looted", c.x, c.y, c.z, "Looted chest · by " + c.by + ", " + fmtDay(c.at), { find: true, chest: c } ]);
+      else if (c.rl === true) unknownChests.push([ "looted", c.x, c.y, c.z, "Looted chest", { find: true, chest: c } ]);
     }
     if (unknownChests.length) {
       data.categories.push({ id: "looted", label: "Looted chests (not in the data)", color: "#6b6b75", on: true, label_default: "Looted chest" });
@@ -1259,7 +1283,10 @@
   // filtered (players made them).
   function discKnown(p) {
     if (p.isFind || (p[5] && p[5].base)) return null;
-    if (p.k !== undefined) return DISC ? discNames().some(n => DISC.players[n] && DISC.players[n].keys.has(p.k)) : null;
+    if (p.k !== undefined && DISC) {
+      if (discNames().some(n => DISC.players[n] && DISC.players[n].keys.has(p.k))) return true;
+      if (DISC.live !== false && Object.keys(DISC.players).length) return false;
+    }
     return EXP ? exploredAt(p[1], p[3]) : null;
   }
   function discHidden(p) {
@@ -1268,9 +1295,13 @@
     return known === null ? false : discMode === "known" ? !known : known;
   }
   function discText(p) {
-    if (!DISC || p.k === undefined || !Object.keys(DISC.players).length) return "";
-    const by = Object.keys(DISC.players).filter(n => DISC.players[n].keys.has(p.k));
-    return by.length ? " · discovered by " + by.join(", ") : " · not discovered yet";
+    const by = p.k === undefined ? [] : Object.keys(DISC?.players || {}).filter(n => DISC.players[n].keys.has(p.k));
+    const join = names => names.sort((a, b) => a.localeCompare(b, language)).map(itemText).join(", ");
+    if (by.length) return " · " + t("Discovered by ") + join(by);
+    const explored = exploredNamesAt(p[1], p[3]);
+    if (explored.length) return " · " + t("Area explored by ") + join(explored);
+    return p.k !== undefined && DISC?.live !== false && Object.keys(DISC?.players || {}).length
+      ? " · " + t("Not discovered yet") : "";
   }
   function discPanel() {
     const bySel = document.getElementById("discBy"), note = document.getElementById("discNote");
@@ -1282,7 +1313,9 @@
       + (online(n) ? "" : " (offline)") + "</option>")).join("");
     if (bySel.innerHTML !== want) { bySel.innerHTML = want; bySel.value = names.includes(discBy) ? discBy : ""; }
     note.textContent = !DISC && !EXP ? t("Needs the server part 1.6.") : !names.length ? t("Nobody has played since the update.")
-      : t("Towns, dungeons, camps ... use the game's own state; everything else counts within 300 m of where that player has been.");
+      : t(DISC?.live === false
+        ? "Live discovery data is unavailable for this build; explored areas cover 300 m around each player's path."
+        : "Towns, dungeons, camps ... use the game's own state; everything else counts within 300 m of where that player has been.");
     document.getElementById("discMode").disabled = !names.length;
     bySel.disabled = !names.length;
   }
@@ -1292,6 +1325,17 @@
   // choice and is rebuilt when the data or the choice changes.
   let EXP = null, expVersion = -1, expFetching = false, expLast = 0, expGrid = null;
   const EXP_RADIUS = 300;
+  function exploredNamesAt(x, z) {
+    if (!EXP) return [];
+    const n = EXP.cells, cell = EXP.cellMetres;
+    const col = Math.floor(x / cell), row = Math.floor(z / cell);
+    if (col < 0 || row < 0 || col >= n || row >= n) return [];
+    const index = row * n + col;
+    return Object.keys(EXP.players).filter(name => {
+      const bits = EXP.players[name];
+      return !!(bits[index >> 3] & (1 << (index & 7)));
+    });
+  }
   function exploredGrid() {
     if (expGrid) return expGrid;
     const names = discNames();
@@ -1374,7 +1418,7 @@
       if (!d) return;
       const players = {};
       for (const [name, v] of Object.entries(d.players || {})) players[name] = { online: v.online, at: v.at, keys: new Set(v.keys) };
-      DISC = { players };
+      DISC = { players, live: d.live };
       discVersion = d.version;
       discInvalidate();
       discPanel();
