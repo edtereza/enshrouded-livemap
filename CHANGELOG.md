@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.12.3 (2026-11-22)
+## 1.12.4 (2026-11-22)
 - Restore chest opening attribution in tooltips, including chests that remain full and world-only markers.
 - Resolve the opening player from the interaction event guest entity instead of proximity.
 - Preserve the last identified opening when later events cannot identify a player.

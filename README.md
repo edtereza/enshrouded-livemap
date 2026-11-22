@@ -10,7 +10,7 @@ localized lore markers and support for local worlds.
 
 Repository: [edtereza/enshrouded-livemap](https://github.com/edtereza/enshrouded-livemap)
 
-Current version: **1.12.3**. See the [changelog](CHANGELOG.md).
+Current version: **1.12.4**. See the [changelog](CHANGELOG.md).
 
 ## Human and AI contributions
 
