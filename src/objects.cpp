@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <set>
+#include "text.h"
 
 namespace livemap::objects {
 
@@ -28,8 +30,20 @@ std::vector<std::string> objects_in(const std::string& t, const char* key) {
     i += k.size();
     while (i < t.size() && t[i] != ']') {
         if (t[i] != '{') { ++i; continue; }
-        size_t end = t.find('}', i);
-        if (end == std::string::npos) break;
+        size_t end = i + 1;
+        int depth = 1;
+        bool quoted = false, escaped = false;
+        for (; end < t.size(); ++end) {
+            const char c = t[end];
+            if (quoted) {
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') quoted = false;
+            } else if (c == '"') quoted = true;
+            else if (c == '{') ++depth;
+            else if (c == '}' && --depth == 0) break;
+        }
+        if (end == t.size()) break;
         out.push_back(t.substr(i + 1, end - i - 1));
         i = end + 1;
     }
@@ -47,15 +61,7 @@ bool flag(const std::string& body, const char* key) {
 }
 
 std::string text(const std::string& body, const char* key) {
-    const std::string k = std::string("\"") + key + "\":\"";
-    size_t at = body.find(k);
-    if (at == std::string::npos) return {};
-    std::string out;
-    for (size_t i = at + k.size(); i < body.size() && body[i] != '"'; ++i) {
-        if (body[i] == '\\' && i + 1 < body.size()) ++i;
-        out += body[i];
-    }
-    return out;
+    return livemap::text::json_string_member("{" + body + "}", key);
 }
 
 std::string place_key(const std::string& tpl, float x, float z) {
@@ -63,6 +69,60 @@ std::string place_key(const std::string& tpl, float x, float z) {
 }
 
 }  // namespace
+
+bool is_player_tombstone(const std::string& name, uint8_t family) {
+    return family == 12 || name == "Base_LootContainer_Player_LootCorpse_Tombstone";
+}
+
+bool Store::update_tombstones(const std::vector<Tombstone>& stones, const std::vector<deaths::Death>& deaths, int64_t now) {
+    std::lock_guard lock(mutex_);
+    std::set<std::string> observed;
+    bool changed = false;
+    for (const auto& stone : stones) {
+        if (!stone.entity || !std::isfinite(stone.x) || !std::isfinite(stone.y) || !std::isfinite(stone.z) ||
+            stone.x < 0 || stone.z < 0 || stone.x > 10240 || stone.z > 10240) continue;
+        const std::string key = stone.marker.empty() ? "entity:" + std::to_string(stone.entity) + "@" +
+            std::to_string(std::lround(stone.x * 100)) + "," + std::to_string(std::lround(stone.y * 100)) + "," +
+            std::to_string(std::lround(stone.z * 100)) : "marker:" + stone.marker;
+        observed.insert(key);
+        auto [it, added] = tombstones_.try_emplace(key);
+        auto& r = it->second;
+        if (added) r.first = now;
+        const bool collected = r.collected || stone.removing || (stone.inventory_ready && stone.empty);
+        if (added || !r.loaded || r.collected != collected || r.stone.x != stone.x || r.stone.y != stone.y || r.stone.z != stone.z)
+            changed = true;
+        r.stone = stone;
+        r.seen = now;
+        r.loaded = true;
+        r.collected = collected;
+        std::string owner = r.owner, source = r.owner_source;
+        if (!stone.owner.empty()) { owner = stone.owner; source = "entity"; }
+        else if (source != "entity") {
+            std::set<std::string> candidates;
+            for (const auto& death : deaths) {
+                const double dx = death.x - stone.x, dz = death.z - stone.z;
+                if (!death.name.empty() && std::abs(death.at - r.first) <= 10 && dx * dx + dz * dz <= 9)
+                    candidates.insert(death.name);
+            }
+            if (candidates.size() == 1) { owner = *candidates.begin(); source = "nearby-death"; }
+            else if (candidates.size() > 1) { owner.clear(); source.clear(); }
+        }
+        if (owner != r.owner || source != r.owner_source) changed = true;
+        r.owner = std::move(owner);
+        r.owner_source = std::move(source);
+    }
+    for (auto it = tombstones_.begin(); it != tombstones_.end();) {
+        auto& r = it->second;
+        if (r.loaded && !observed.contains(it->first)) { r.loaded = false; changed = true; }
+        // Collection proofs only need a short grace period; death history is kept separately.
+        if (r.collected && !r.loaded && now > r.seen && now - r.seen > 3600) {
+            it = tombstones_.erase(it);
+            changed = true;
+        } else ++it;
+    }
+    if (changed) ++version_;
+    return changed;
+}
 
 std::string chest_key(const Chest& c) {
     return c.id != 0 ? "#" + std::to_string(c.id) : place_key(c.tpl, c.x, c.z);
@@ -98,12 +158,13 @@ void Store::set_creatures(std::vector<Creature> creatures) {
     ++creatures_version_;
 }
 
-std::string Store::objects_json() {
+std::string Store::objects_json(bool include_objects, bool include_tombstones) {
     std::lock_guard lock(mutex_);
     std::string out = "{\"version\":" + std::to_string(version_) + ",\"chests\":[";
     bool first = true;
     char buf[160];
     for (const auto& [key, r] : chests_) {
+        if (!include_objects) break;
         std::snprintf(buf, sizeof buf, "%s{\"id\":%u,\"t\":\"", first ? "" : ",", r.c.id);
         out += buf;
         append_escaped(out, r.c.tpl);
@@ -115,12 +176,28 @@ std::string Store::objects_json() {
     out += "],\"switches\":[";
     first = true;
     for (const auto& [key, r] : switches_) {
+        if (!include_objects) break;
         out += first ? "{\"t\":\"" : ",{\"t\":\"";
         append_escaped(out, r.s.tpl);
         std::snprintf(buf, sizeof buf, "\",\"x\":%.1f,\"y\":%.1f,\"z\":%.1f,\"k\":\"%c\",\"on\":%s,\"at\":%lld}", r.s.x, r.s.y, r.s.z, r.s.kind,
                       r.s.on ? "true" : "false", static_cast<long long>(r.at));
         out += buf;
         first = false;
+    }
+    out += "],\"tombstones\":[";
+    first = true;
+    for (const auto& [key, r] : tombstones_) {
+        if (!include_tombstones) break;
+        if (!first) out += ',';
+        first = false;
+        out += "{\"key\":" + livemap::text::quote_json(key) + ",\"marker\":" + livemap::text::quote_json(r.stone.marker);
+        out += ",\"owner\":" + livemap::text::quote_json(r.owner) + ",\"ownerSource\":" + livemap::text::quote_json(r.owner_source);
+        char stone[300];
+        std::snprintf(stone, sizeof stone,
+            ",\"entity\":%u,\"x\":%.2f,\"y\":%.2f,\"z\":%.2f,\"first\":%lld,\"seen\":%lld,\"loaded\":%s,\"collected\":%s}",
+            r.stone.entity, r.stone.x, r.stone.y, r.stone.z, static_cast<long long>(r.first), static_cast<long long>(r.seen),
+            r.loaded ? "true" : "false", r.collected ? "true" : "false");
+        out += stone;
     }
     out += "]}";
     return out;
@@ -147,6 +224,7 @@ bool Store::from_json(const std::string& t) {
     if (t.find("\"chests\":[") == std::string::npos || t.find("\"switches\":[") == std::string::npos) return false;
     std::map<std::string, ChestRec> chests;
     std::map<std::string, SwitchRec> switches;
+    std::map<std::string, TombstoneRec> tombstones;
     for (const std::string& b : objects_in(t, "chests")) {
         ChestRec r;
         r.c.id = static_cast<uint32_t>(number(b, "id", 0));
@@ -172,9 +250,27 @@ bool Store::from_json(const std::string& t) {
         if (r.s.tpl.empty() || r.s.x < 0 || r.s.z < 0) return false;
         switches[switch_key(r.s)] = r;
     }
+    for (const auto& b : objects_in(t, "tombstones")) {
+        const auto key = text(b, "key");
+        TombstoneRec r;
+        r.stone.marker = text(b, "marker");
+        r.stone.entity = static_cast<uint32_t>(number(b, "entity", 0));
+        r.stone.x = static_cast<float>(number(b, "x", -1));
+        r.stone.y = static_cast<float>(number(b, "y", 0));
+        r.stone.z = static_cast<float>(number(b, "z", -1));
+        r.first = static_cast<int64_t>(number(b, "first", 0));
+        r.seen = static_cast<int64_t>(number(b, "seen", 0));
+        r.collected = flag(b, "collected");
+        r.owner = text(b, "owner");
+        r.owner_source = text(b, "ownerSource");
+        if (key.empty() || !std::isfinite(r.stone.x) || !std::isfinite(r.stone.y) || !std::isfinite(r.stone.z) ||
+            r.stone.x < 0 || r.stone.z < 0 || r.stone.x > 10240 || r.stone.z > 10240) return false;
+        tombstones[key] = std::move(r); // Never restore "loaded": a fresh world observation is required.
+    }
     std::lock_guard lock(mutex_);
     chests_ = std::move(chests);
     switches_ = std::move(switches);
+    tombstones_ = std::move(tombstones);
     ++version_;
     return true;
 }

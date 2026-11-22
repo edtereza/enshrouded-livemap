@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const html = fs.readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
-const functions = ['itemText', 'openingRecord', 'chestHistory', 'exploredNamesAt', 'discText', 'discKnown'];
+const functions = ['itemText', 'openingRecord', 'chestHistory', 'exploredNamesAt', 'discText', 'discKnown', 'tombstoneHint', 'applyObjects'];
 const source = functions.map(name => {
   const start = html.indexOf(`  function ${name}(`);
   const end = html.indexOf('\n  }', start);
@@ -16,7 +16,7 @@ function context() {
   const state = {
     language: 'en', DISC: null, EXP: null, findsData: null,
     t: (text, args = {}) => text.replace('{count}', args.count),
-    fmtDay: value => `day-${value}`, lootState: () => ({left: 5}),
+    fmtDay: value => `day-${value}`, fmtAgo: value => `ago-${value}`, lootState: () => ({left: 5}),
   };
   state.discNames = () => [...new Set([...Object.keys(state.DISC?.players || {}), ...Object.keys(state.EXP?.players || {})])];
   state.exploredAt = (x, z) => state.exploredNamesAt(x, z).some(name => state.discNames().includes(name));
@@ -85,4 +85,27 @@ test('confirmed discovery keys keep their original attribution and filtering', (
   point.k = 99;
   assert.equal(c.discKnown(point), false);
   assert.equal(c.discText(point), ' · Not discovered yet');
+});
+
+test('tombstones exclude confirmed collections but retain unobserved last-known markers', () => {
+  const c = context();
+  const data = {categories: [], pois: []};
+  c.applyObjects(data, {chests: [], switches: [], tombstones: [
+    {key: 'a', x: 100, y: 40, z: 200, loaded: true, collected: false},
+    {key: 'b', x: 101, y: 40, z: 200, loaded: false, collected: false},
+    {key: 'c', x: 102, y: 40, z: 200, loaded: false, collected: true},
+  ]});
+  assert.equal(data.pois.length, 2);
+  assert.equal(data.categories[0].id, 'tombstone');
+  assert.equal(data.pois[1][5].tombstone.loaded, false);
+  assert.equal(data.pois[0].isFind, true);
+});
+
+test('tombstone hints distinguish direct ownership, nearby deaths and unknown status', () => {
+  const c = context();
+  assert.ok(c.tombstoneHint({owner: 'Alice', ownerSource: 'entity', loaded: true, seen: 10}).includes('Owner: Alice'));
+  const hint = c.tombstoneHint({owner: 'Alice <x>', ownerSource: 'nearby-death', loaded: false, seen: 10});
+  assert.ok(hint.includes('Possible owner: Alice &lt;x&gt; (nearby death)'));
+  assert.ok(hint.includes('Last known position; not currently observed'));
+  assert.ok(c.tombstoneHint({owner: '', loaded: true, seen: 10}).includes('Owner unknown'));
 });

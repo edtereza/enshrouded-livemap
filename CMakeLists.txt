@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(enshrouded_livemap VERSION 1.12.4 LANGUAGES CXX ASM_MASM RC)
+project(enshrouded_livemap VERSION 1.13.0 LANGUAGES CXX ASM_MASM RC)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -55,7 +55,7 @@ foreach(target iphlpapi livemap)
 endforeach()
 
 enable_testing()
-foreach(test finds link text bases a2s discovered explored names deaths objects updates)
+foreach(test finds link text bases a2s discovered explored names deaths objects updates tombstones)
     add_executable(${test}_test tests/${test}_test.cpp)
     target_link_libraries(${test}_test PRIVATE livemap_core)
     add_test(NAME ${test} COMMAND ${test}_test)
@@ -64,6 +64,10 @@ endforeach()
 add_executable(scene_player_test tests/scene_player_test.cpp src/scene.cpp src/log.cpp)
 target_link_libraries(scene_player_test PRIVATE livemap_core)
 add_test(NAME scene_player COMMAND scene_player_test)
+
+add_executable(scene_tombstone_test tests/scene_tombstone_test.cpp src/scene.cpp src/log.cpp)
+target_link_libraries(scene_tombstone_test PRIVATE livemap_core)
+add_test(NAME scene_tombstone COMMAND scene_tombstone_test)
 
 # Offline compatibility check against an executable on disk.
 add_executable(livemap_selftest tools/selftest.cpp)

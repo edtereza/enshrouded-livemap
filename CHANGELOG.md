@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.13.0 (2026-11-22)
+- Display real player tombstones using their template/family and live inventory/removal state.
+- Remove confirmed collected markers while preserving unobserved last-known positions.
+- Identify direct runtime owners when available and label nearby-death associations as possible owners.
+- Persist tombstone state in objects.json, revalidate loaded state after restart and add Tombstones=1 configuration.
+- Add synthetic ECS, lifecycle, persistence and interface regression coverage.
+
 ## 1.12.4 (2026-11-22)
 - Restore chest opening attribution in tooltips, including chests that remain full and world-only markers.
 - Resolve the opening player from the interaction event guest entity instead of proximity.

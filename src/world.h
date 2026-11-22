@@ -21,6 +21,7 @@ bool install(const Targets& targets, std::string& error);
 // Re-reads the player table (who is in game, names) so the movement hook knows which entities
 // to record. Call a few times per second from a normal thread.
 void refresh_players();
+void enable_tombstones();
 
 // The current state as JSON for the web page.
 std::string snapshot_json();

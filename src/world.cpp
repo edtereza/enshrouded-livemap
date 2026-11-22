@@ -73,6 +73,8 @@ deaths::Store g_deaths;
 objects::Store g_objects;
 std::atomic<bool> g_objects_on{false};
 uint64_t g_objects_ms = 0;  // game thread only
+std::atomic<bool> g_tombstones_on{false};
+uint64_t g_tombstones_ms = 0;
 discovered::Store g_discovered;
 discovered::Store g_player_history;
 std::map<uint32_t, std::string> g_guardian_sessions;  // updated and read on the polling thread
@@ -187,14 +189,28 @@ void on_player_table(SafetyHookContext& ctx) {
             }
         }
     }
-    if (!g_objects_on.load(std::memory_order_relaxed)) return;
     const uint64_t now = GetTickCount64();
-    if (now - g_objects_ms < 2000) return;
-    g_objects_ms = now;
+    const bool objects_due = g_objects_on.load(std::memory_order_relaxed) && now - g_objects_ms >= 2000;
+    const bool stones_due = g_tombstones_on.load(std::memory_order_relaxed) && now - g_tombstones_ms >= 100;
+    if (!objects_due && !stones_due) return;
+    if (objects_due) g_objects_ms = now;
+    if (stones_due) g_tombstones_ms = now;
     scene::Pass pass;
-    if (!scene::walk(pass)) return;
-    g_objects.update(pass.chests, pass.switches, unix_now());
-    g_objects.set_creatures(std::move(pass.creatures));
+    if (!scene::walk(pass, !objects_due)) return;
+    if (objects_due) {
+        g_objects.update(pass.chests, pass.switches, unix_now());
+        g_objects.set_creatures(std::move(pass.creatures));
+    }
+    if (stones_due) {
+        {
+            std::lock_guard lock(g_names_mutex);
+            for (auto& stone : pass.tombstones) {
+                for (int i = 0; stone.owner_entity && i < kSlotCount; ++i)
+                    if (g_slots[i].entity.load() == stone.owner_entity) { stone.owner = g_names[i]; break; }
+            }
+        }
+        g_objects.update_tombstones(pass.tombstones, g_deaths.recent(), unix_now());
+    }
 }
 
 // Every entity the movement system moves passes here; only players are kept.
@@ -617,6 +633,10 @@ objects::Store& objects_store() { return g_objects; }
 void enable_objects() {
     g_objects_on.store(true, std::memory_order_relaxed);
     log("chests, switches and creatures: read from the loaded world every 2 s");
+}
+void enable_tombstones() {
+    g_tombstones_on.store(true);
+    log("player tombstones: observe inventory and loot-removal state on the game thread");
 }
 explored::Store& explored_store() { return g_explored; }
 

@@ -1,4 +1,4 @@
-Enshrouded Live Map 1.12.4
+Enshrouded Live Map 1.13.0
 =========================
 
 SHROUDTOPIA PACKAGES (CLIENT AND SERVER)
@@ -148,3 +148,12 @@ New openings use the interaction event actor, not the nearest player.
 Area explored by is based on saved 300 m exploration coverage, including offline players.
 It does not prove that the item was opened or looted. On builds without live discovery
 keys, the filter falls back to those explored areas. Existing histories are preserved.
+
+PLAYER TOMBSTONES
+Markers > Places > Player tombstones displays real tombstone entities.
+Confirmed empty inventories/loot-removal flags remove their markers. Missing observations
+leave a faded last-known position; unloading a region does not confirm collection.
+A direct runtime owner is shown when available. Possible owner means a unique nearby
+recent death (3 m / 10 seconds), not confirmed ownership. Ambiguous matches stay unknown.
+Tombstones=1 is the default in [livemap]; set Tombstones=0 to disable.
+State is saved in livemap/objects.json and revalidated after restart.

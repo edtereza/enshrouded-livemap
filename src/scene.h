@@ -17,11 +17,12 @@ struct Pass {
     std::vector<objects::Chest> chests;
     std::vector<objects::Switch> switches;
     std::vector<objects::Creature> creatures;
+    std::vector<objects::Tombstone> tombstones;
     int archetypes = 0;
 };
 // One pass over every loaded entity of interest. Call on the game thread (the world changes
 // between ticks). False when there is no world yet or its layout is not the analysed one.
-bool walk(Pass& out);
+bool walk(Pass& out, bool tombstones_only = false);
 
 struct PlayerTransform {
     uint32_t entity = 0;

@@ -37,6 +37,11 @@ constexpr uint32_t fnv(const char* s) {
 constexpr uint32_t kTransform = fnv("keen::ecs::CurrentTransform");
 constexpr uint32_t kRandomLoot = fnv("keen::ecs::RandomLootContainer");
 constexpr uint32_t kEmptyState = fnv("keen::ecs::InventoryEmptyState");     // {toggleVFX, isEmpty}
+constexpr uint32_t kDestroyOnLoot = fnv("keen::ecs::DestroyOnLoot");
+constexpr uint32_t kFamily = fnv("keen::ecs::TemplateFamilyInfo");
+constexpr uint32_t kMapMarker = fnv("keen::ecs::MapMarker");
+constexpr uint32_t kOwner = fnv("keen::ecs::OwnerRelationship");
+constexpr uint32_t kInventorySetup = fnv("keen::ecs::InventorySetup");
 constexpr uint32_t kLootLock = fnv("keen::ecs::RandomLootLock");            // {isEmpty}, saved
 constexpr uint32_t kLootNode = fnv("keen::ecs::SceneLootNodeId");           // u32
 constexpr uint32_t kLock = fnv("keen::ecs::InteractionLock");               // {destroy, itemUsed}
@@ -262,7 +267,7 @@ std::vector<PlayerTransform> player_transforms(const std::vector<uint32_t>& enti
     return result;
 }
 
-bool walk(Pass& out) {
+bool walk(Pass& out, bool tombstones_only) {
     std::lock_guard held(g_mutex);
     if (!attach()) return false;
     uintptr_t table = 0;
@@ -281,16 +286,18 @@ bool walk(Pass& out) {
     const int transform = index_of(kTransform), loot = index_of(kRandomLoot), empty = index_of(kEmptyState),
               loot_lock = index_of(kLootLock), node = index_of(kLootNode), lock = index_of(kLock), toggle = index_of(kToggle),
               barrier = index_of(kBarrier), health = index_of(kHealth), enemy = index_of(kEnemy), level = index_of(kLevel),
-              boss = index_of(kBoss);
+              boss = index_of(kBoss), destroy = index_of(kDestroyOnLoot), family = index_of(kFamily),
+              marker = index_of(kMapMarker), owner = index_of(kOwner), setup = index_of(kInventorySetup);
     for (size_t k = 0; k < sorted.size(); ++k) {
         const uintptr_t p = sorted[k];
         if (p == 0 || (p & 7) != 0 || (k > 0 && sorted[k - 1] == p) || (k + 1 < sorted.size() && sorted[k + 1] == p)) continue;
         Arch a;
         a.at = p;
         if (!read_bytes(p + kBits, a.bits, kBitsBytes) || !a.has(transform)) continue;
-        const bool is_chest = a.has(loot) && a.has(empty), is_lock = a.has(lock), is_toggle = a.has(toggle),
-                   is_creature = a.has(health);
-        if (!is_chest && !is_lock && !is_toggle && !is_creature) continue;
+        const bool is_chest = !tombstones_only && a.has(loot) && a.has(empty),
+                   is_lock = !tombstones_only && a.has(lock), is_toggle = !tombstones_only && a.has(toggle),
+                   is_creature = !tombstones_only && a.has(health), is_tombstone = a.has(empty) && a.has(destroy);
+        if (!is_chest && !is_lock && !is_toggle && !is_creature && !is_tombstone) continue;
         ++out.archetypes;
         uint16_t t_offset = 0, t_size = 0;
         if (!a.component(transform, t_offset, t_size)) continue;
@@ -300,6 +307,33 @@ bool walk(Pass& out) {
             Rows rows = read_chunk(chunk, t_offset, t_size);
             if (rows.ok) {
                 const uint32_t n = rows.n;
+                if (is_tombstone) {
+                    const auto es = column(a, chunk, n, empty, 2), dl = column(a, chunk, n, destroy, 104),
+                               fm = column(a, chunk, n, family, 1), mk = column(a, chunk, n, marker, 40),
+                               ow = column(a, chunk, n, owner, 4), inv = column(a, chunk, n, setup, 84);
+                    for (uint32_t j = 0; j < n && !es.empty() && !dl.empty(); ++j) {
+                        if (!objects::is_player_tombstone(rows.names[j], fm.empty() ? 0 : fm[j]) ||
+                            !in_world(rows.x[j], rows.z[j])) continue;
+                        objects::Tombstone stone;
+                        stone.entity = rows.ids[j];
+                        stone.x = rows.x[j]; stone.y = rows.y[j]; stone.z = rows.z[j];
+                        stone.empty = es[j * 2 + 1] != 0;
+                        stone.removing = dl[j * 104 + 64] != 0 && dl[j * 104 + 65] != 0;
+                        stone.inventory_ready = !a.has(setup) || (!inv.empty() && inv[j * 84 + 83] != 0);
+                        if (!ow.empty()) std::memcpy(&stone.owner_entity, &ow[j * 4], 4);
+                        if (!mk.empty()) {
+                            constexpr char hex[] = "0123456789abcdef";
+                            bool nonzero = false;
+                            for (size_t b = 0; b < 16; ++b) {
+                                const uint8_t value = mk[j * 40 + b];
+                                nonzero |= value != 0;
+                                stone.marker += hex[value >> 4]; stone.marker += hex[value & 15];
+                            }
+                            if (!nonzero) stone.marker.clear();
+                        }
+                        out.tombstones.push_back(std::move(stone));
+                    }
+                }
                 if (is_chest) {
                     const auto es = column(a, chunk, n, empty, 2), ll = column(a, chunk, n, loot_lock, 1), id = column(a, chunk, n, node, 4);
                     for (uint32_t j = 0; j < n && !es.empty(); ++j) {
@@ -360,7 +394,7 @@ bool walk(Pass& out) {
             if (!read_ptr(chunk + 8, chunk)) break;
         }
     }
-    if (g_walks_logged < 3) {
+    if (!tombstones_only && g_walks_logged < 3) {
         ++g_walks_logged;
         size_t looted = 0, on = 0;
         for (const auto& c : out.chests) looted += c.empty;

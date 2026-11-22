@@ -25,6 +25,7 @@ struct Config {
     bool discovered = true;      // which markers each player discovered (Discovered=0 turns it off)
     bool deaths = true;          // death count per player (Deaths=0 turns it off)
     bool objects = true;         // chests, locks, switches and creatures from the world (Objects=0 turns it off)
+    bool tombstones = true;
     bool chat_probe = false;     // research: after a join, post one chat line per message type
 };
 

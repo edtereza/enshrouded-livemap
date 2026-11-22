@@ -321,7 +321,7 @@ void handle(SOCKET s) {
         return;
     }
     if (path == "/objects") {
-        send_response(s, "200 OK", "application/json", world::objects_store().objects_json());
+        send_response(s, "200 OK", "application/json", world::objects_store().objects_json(g_config.objects, g_config.tombstones));
         return;
     }
     if (path == "/creatures") {

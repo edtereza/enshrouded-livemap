@@ -38,6 +38,7 @@ public:
     size_t players();
     std::vector<std::string> names();
     int count(const std::string& name);
+    std::vector<Death> recent();
 
 private:
     struct Player {

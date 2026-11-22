@@ -5,6 +5,11 @@
 
 namespace livemap::deaths {
 
+std::vector<Death> Store::recent() {
+    std::lock_guard lock(mutex_);
+    return {recent_.begin(), recent_.end()};
+}
+
 namespace {
 
 void append_escaped(std::string& out, const std::string& s) {

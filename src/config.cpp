@@ -127,6 +127,8 @@ Config load_config(const std::wstring& dir) {
             "; Milliseconds between updates of the page (100 to 5000).\n"
             "UpdateMs=250\n"
             "Log=1\n"
+            "; 1 = observe real player tombstones and their loot-removal state.\n"
+            "Tombstones=1\n"
             "; 1 = log time and positions every 30 s (to check the mod reads the right values).\n"
             "LogDiagnostics=1\n";
         if (FILE* f = _wfopen(path.c_str(), L"wb")) {
@@ -182,6 +184,7 @@ Config load_config(const std::wstring& dir) {
     c.discovered = GetPrivateProfileIntW(L"livemap", L"Discovered", 1, path.c_str()) != 0;
     c.deaths = GetPrivateProfileIntW(L"livemap", L"Deaths", 1, path.c_str()) != 0;
     c.objects = GetPrivateProfileIntW(L"livemap", L"Objects", 1, path.c_str()) != 0;
+    c.tombstones = GetPrivateProfileIntW(L"livemap", L"Tombstones", 1, path.c_str()) != 0;
     c.chat_probe = GetPrivateProfileIntW(L"livemap", L"ChatProbe", 0, path.c_str()) != 0;
     return c;
 }

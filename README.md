@@ -10,7 +10,7 @@ localized lore markers and support for local worlds.
 
 Repository: [edtereza/enshrouded-livemap](https://github.com/edtereza/enshrouded-livemap)
 
-Current version: **1.12.4**. See the [changelog](CHANGELOG.md).
+Current version: **1.13.0**. See the [changelog](CHANGELOG.md).
 
 ## Human and AI contributions
 
@@ -47,6 +47,8 @@ for this expanded version.
 - **World state:** loaded chests, locks, barriers, switches and nearby creatures, including
   health and boss information where available.
 - **Time and weather:** game time, real time, rain, snow and shroud overlays.
+- **Player tombstones:** real tombstone entities with inventory/removal state, confirmed runtime ownership
+  when available, and clearly labeled nearby-death hints. Unobserved markers retain their last known position.
 - **Exploration and deaths:** explored-area history and persistent death counts. Item tooltips
   identify confirmed discoveries and the players whose saved explored areas cover a location.
 - **Opening history:** show the known player who opened a chest even when it is still full.
@@ -258,6 +260,7 @@ UpdateMs=250
 | `Bases` | `1` | Enables Flame Altar markers. |
 | `Discovered` | `1` | Enables supported discovery updates and explored-area tracking. |
 | `Deaths` | `1` | Enables death counting and persistence. |
+| `Tombstones` | `1` | Read player tombstones independently of Objects. Set to `0` to disable. |
 | `Objects` | `1` | Enables loaded-world chests, switches and creature information. |
 | `Log` / `LogDiagnostics` | `1` | Controls the log and periodic diagnostic entries. |
 
@@ -312,6 +315,24 @@ revalidation. Versioned shared assets use private immutable caching.
 
 Guardian source and installation instructions are available in the
 [Enshrouded Guardian repository](https://github.com/edtereza/enshrouded-guardian).
+
+## Player tombstones
+
+Enable **Player tombstones** under **Markers → Places**. The collector recognizes the game's
+`Base_LootContainer_Player_LootCorpse_Tombstone` / Tombstone family, rather than turning
+every death into a marker. It observes inventory and loot-removal flags on the game thread.
+Confirmed empty or loot-destroying tombstones disappear from the map. Unobserved entities
+remain faded at their last known position and are never classified as recovered merely
+because a region unloads. This also covers a collection whose brief state was not observed.
+
+The tooltip shows a direct owner when the runtime relationship maps to a known player.
+A unique death within 3 m and 10 seconds of first observation is labeled **Possible owner**;
+ambiguous matches stay unknown. This is an inference, not ownership confirmation.
+Set `Tombstones=0` in `[livemap]` to disable collection. State is kept in
+`livemap/objects.json`; loaded status is revalidated after every restart.
+
+The collector and state transitions have synthetic ECS and persistence tests. Live
+creation/collection with connected players still requires validation on the target server.
 
 ## Persistent data
 

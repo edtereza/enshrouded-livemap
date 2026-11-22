@@ -305,6 +305,10 @@
     "Barriers":"Barreiras", "Character sheet":"Ficha do personagem", "Open character sheet":"Abrir ficha do personagem",
     "Close character sheet":"Fechar ficha", "Text unavailable.":"Texto indisponível.", "Notes and lore":"Bilhetes e lore",
     "Opened by ":"Aberto por ", "Unknown player":"Jogador desconhecido", "Looted":"Saqueado", "Still full":"Ainda cheio",
+    "Player tombstones":"Lápides de jogadores", "Player tombstone":"Lápide de jogador", "Owner: ":"Dono: ",
+    "Possible owner: ":"Possível dono: ", "Owner unknown":"Dono desconhecido", " (nearby death)":" (morte próxima)",
+    "Observed in the world":"Observada no mundo", "Last known position; not currently observed":"Última posição conhecida; não observada atualmente",
+    "Last seen: ":"Última observação: ",
     "Discovered by ":"Descoberto por ", "Area explored by ":"Área explorada por ", "Not discovered yet":"Ainda não descoberto",
     "Observed on ":"Observado em ", "Opened":"Aberto", "In a base: does not refill":"Dentro de uma base: não reabastece",
     "Refills in about {count} min":"Reabastece em aproximadamente {count} min", "Should be full again":"Já deve estar cheio novamente",
@@ -498,6 +502,8 @@
     ore: '<path d="M4 20 L15 9" stroke="#120e18" stroke-width="5" stroke-linecap="round"/>'
       + '<path d="M4 20 L15 9" stroke="COLOR" stroke-width="2.5" stroke-linecap="round"/>'
       + '<path d="M9 5c4-2 8-2 12 2-3 0-6 1-8 3-1-2-2-3-4-5z" fill="COLOR" stroke="#120e18" stroke-width="1.5" stroke-linejoin="round"/>',
+    tombstone: '<path d="M6 21V8a6 6 0 0 1 12 0v13z" fill="COLOR" stroke="#120e18" stroke-width="1.5"/>'
+      + '<path d="M12 7v9M9 10h6M4 21h16" fill="none" stroke="#120e18" stroke-width="1.8"/>',
     lock_closed: '<path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="#120e18" stroke-width="4.5"/>'
       + '<path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="COLOR" stroke-width="2.2"/>'
       + '<rect x="5" y="11" width="14" height="10" rx="1.5" fill="COLOR" stroke="#120e18" stroke-width="1.5"/>'
@@ -640,6 +646,12 @@
         : t("Refills in about {count} min", {count: state.left}));
     }
     return message;
+  }
+  function tombstoneHint(stone) {
+    let text = " · " + (stone.owner ? t(stone.ownerSource === "entity" ? "Owner: " : "Possible owner: ") + itemText(stone.owner)
+      + (stone.ownerSource === "entity" ? "" : t(" (nearby death)")) : t("Owner unknown"));
+    text += " · " + t(stone.loaded ? "Observed in the world" : "Last known position; not currently observed");
+    return text + " · " + t("Last seen: ") + fmtAgo(stone.seen);
   }
   let iconFiles = {}, poiData = null;
   let hideLooted = (() => { try { return localStorage.getItem("livemap.hideLooted") === "1"; } catch { return false; } })();
@@ -824,7 +836,11 @@
               if (p[5] && p[5].chest && !p[5].real && !lootState(p[5].chest)) continue;   // a looted chest not in the data, refilled
               if (looted && hideLooted) continue;
               if (looted && lootedSprite) ctx.drawImage(lootedSprite.canvas, x - lootedSprite.w / 2, y - lootedSprite.w / 2, lootedSprite.w, lootedSprite.w);
-              else ctx.drawImage(sp.canvas, x - half, y - half, dw, dw);
+              else {
+                ctx.globalAlpha = p[5]?.tombstone?.loaded === false ? 0.45 : 1;
+                ctx.drawImage(sp.canvas, x - half, y - half, dw, dw);
+                ctx.globalAlpha = 1;
+              }
               this._push(x, y, hitR, p);
             }
           }
@@ -946,7 +962,7 @@
       const real = (idx >= 0 ? chestByPoi.get(idx) : null) || (extra.real ? extra.chest : null);
       const record = (idx >= 0 ? lootedByPoi.get(idx) : null) || (!extra.real ? extra.chest : null)
         || (real ? openingRecord(real) : null);
-      const lootText = chestHistory(record, real);
+      const lootText = chestHistory(record, real) + (extra.tombstone ? tombstoneHint(extra.tombstone) : "");
       this._tip.setLatLng([p[3], p[1]]).setContent(p[4] + " · " + p[2].toFixed(0) + " m" + lootText + discText(p)
         + (under > 1 ? " · +" + (under - 1) + " more here" : ""));
       if (!this._tipOpen) { this._map.openTooltip(this._tip); this._tipOpen = true; }
@@ -1060,6 +1076,13 @@
       return i;
     };
     const add = p => { p.isFind = true; data.pois.push(p); };
+    if (Array.isArray(objects.tombstones)) {
+      const kind = cat("tombstone", "Player tombstones", "#e6c88e", "Player tombstone");
+      for (const stone of objects.tombstones) {
+        if (stone.collected) continue;
+        add([kind, stone.x, stone.y, stone.z, t("Player tombstone"), {find: true, tombstone: stone}]);
+      }
+    }
     for (const c of objects.chests || []) {
       let best = -1, bestD = 9;
       for (let i = 0; i < data.pois.length; i++) {
