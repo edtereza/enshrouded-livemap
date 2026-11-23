@@ -3,8 +3,6 @@
 Live Map 1.14.0 supplies the dedicated-server engine backend for Guardian 3.2.0.
 Install both Shroudtopia modules and restart the server. Set Guardian's hardcore to true and keep Live Map Enabled=1 and Deaths=1. No client modification or EMF runtime is required.
 
-The integration has compiled and passed offline checks; gameplay has not yet been tested. Validate on a separate world with backed-up characters before production use.
-
 The native program is registered at world setup. Exact PE timestamp 6aeb143e, image size 0x1dde000, unique code patterns and matching RVAs are mandatory. All required functions are resolved before installing either hook. A mismatch leaves regular Live Map available and refuses hardcore.
 
 Only deaths matched by account hash trigger Guardian's independently checked SteamID/session identity. Nearest-position and display-name matches never authorize resets. A new live death must pass through an observed dead/not-ready state before the alive/ready state; waiting for a manual respawn does not time out.
