@@ -10,7 +10,7 @@ localized lore markers and support for local worlds.
 
 Repository: [edtereza/enshrouded-livemap](https://github.com/edtereza/enshrouded-livemap)
 
-Current version: **1.14.0**. See the [changelog](CHANGELOG.md).
+Current version: **2.0.0**. See the [changelog](CHANGELOG.md).
 
 ## Human and AI contributions
 
@@ -393,4 +393,4 @@ notice remains included.
 
 ## Guardian hardcore backend
 
-Live Map 1.14.0 provides the dedicated-server native backend for Guardian 3.2.0 hardcore. Keep Enabled=1 and Deaths=1. See [setup, safeguards and test limitations](docs/HARDCORE.md). No client mod or EMF runtime is required.
+Guardian 4.1.0 owns the complete native hardcore backend and works without Live Map. Live Map 2.0.0 provides only an optional telemetry bridge, without installing duplicate hardcore hooks. Older 1.14.x modules must be updated or disabled when using the integrated backend. See [integration details](docs/HARDCORE.md).
