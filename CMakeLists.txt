@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(enshrouded_livemap VERSION 1.13.0 LANGUAGES CXX ASM_MASM RC)
+project(enshrouded_livemap VERSION 1.14.0 LANGUAGES CXX ASM_MASM RC)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -40,6 +40,7 @@ set(LIVEMAP_SOURCES
     src/ecs.cpp
     src/scene.cpp
     src/world.cpp
+    src/hardcore.cpp
     src/web.cpp
     src/announce.cpp
     src/public_ip.cpp
@@ -90,3 +91,14 @@ add_executable(title_test tests/title_test.cpp src/config.cpp)
 target_link_libraries(title_test PRIVATE livemap_core bcrypt)
 target_compile_definitions(title_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 add_test(NAME title COMMAND title_test)
+
+add_executable(hardcore_probe tools/hardcore_probe.cpp src/hardcore.cpp src/log.cpp)
+target_include_directories(hardcore_probe PRIVATE src)
+target_link_libraries(hardcore_probe PRIVATE safetyhook::safetyhook)
+target_compile_definitions(hardcore_probe PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+
+add_executable(hardcore_test tests/hardcore_test.cpp src/hardcore.cpp src/log.cpp)
+target_link_libraries(hardcore_test PRIVATE safetyhook::safetyhook)
+target_compile_definitions(hardcore_test PRIVATE HARDCORE_TEST WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+target_include_directories(hardcore_test PRIVATE src)
+add_test(NAME hardcore COMMAND hardcore_test)

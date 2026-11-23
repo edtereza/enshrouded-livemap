@@ -1,3 +1,4 @@
+#include "hardcore.h"
 #include "world.h"
 
 #include <windows.h>
@@ -166,6 +167,7 @@ int64_t unix_now();
 // world (chests, switches, creatures) every 2 s, between the ECS's own changes.
 void on_player_table(SafetyHookContext& ctx) {
     g_manager.store(ctx.rcx, std::memory_order_relaxed);
+    hardcore::manager(ctx.rcx);
     probe_step(ctx.rcx);
     const uint64_t position_now = GetTickCount64();
     if (g_local_game && position_now - g_local_positions_ms >= 250) {
@@ -498,6 +500,12 @@ void on_player_death(SafetyHookContext& ctx) {
         static_cast<unsigned long long>(d.account), d.user, guid, who,
         by_account >= 0 ? "account" : nearest >= 0 ? "position" : "nobody", name.c_str(),
         static_cast<unsigned long long>(slot_account), repeat ? " (repeat, not counted)" : "");
+    // Destructive actions require exact account identity; proximity is display-only.
+    if (by_account >= 0 && !repeat) {
+        uint32_t handle = 0;
+        if (read_u32(manager + kSlots + static_cast<uintptr_t>(by_account) * kStride, handle))
+            hardcore::death(handle, d.account);
+    }
     if (who < 0 || name.empty() || repeat) return;
     g_death_ms[who].store(now, std::memory_order_relaxed);
     g_deaths.record({name, unix_now(), d.cause, d.x, d.z, d.deadly_fog != 0, d.drowned != 0});

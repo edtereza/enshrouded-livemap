@@ -1,3 +1,4 @@
+#include "hardcore.h"
 // Live map for dedicated servers and local games. Shroudtopia activates mods/livemap.dll;
 // the alternative proxy build loads as iphlpapi.dll (Wine: iphlpapi=n,b).
 #include <winsock2.h>
@@ -157,6 +158,11 @@ void start_flame_level(int query_port) {
     }).detach();
 }
 
+std::once_flag hardcore_install_once;
+void start_hardcore(const livemap::Config& config) {
+    if (config.enabled && !config.local_game)
+        std::call_once(hardcore_install_once, [] { livemap::hardcore::install(reinterpret_cast<const uint8_t*>(GetModuleHandleW(nullptr))); });
+}
 DWORD WINAPI start(LPVOID) {
     std::wstring dir = exe_dir();
     livemap::Config config = livemap::load_config(dir);
@@ -190,6 +196,7 @@ DWORD WINAPI start(LPVOID) {
     livemap::console({loaded,
         config.local_game ? "Mode: local game / player-hosted world" : "Mode: dedicated server",
     }, false);
+    if (recognized) start_hardcore(config);
     // Required and informational, including when an unsupported build prevents hooks.
     livemap::updates::check_on_startup(kVersion);
     if (config.require_key && !livemap::link::key_ok(config.key)) {
@@ -401,6 +408,12 @@ extern "C" bool livemap_activate() {
         CloseHandle(gate);
         return false;
     }
+#ifdef LIVEMAP_SHROUDTOPIA
+    // World program registration must be hooked before Activate returns to the game.
+    const auto config = livemap::load_config(exe_dir());
+    livemap::log_open(exe_dir(), config.log);
+    start_hardcore(config);
+#endif
     HANDLE thread = CreateThread(nullptr, 0, start, nullptr, 0, nullptr);
     if (!thread) {
         CloseHandle(gate);

@@ -1,4 +1,4 @@
-Enshrouded Live Map 1.13.0
+Enshrouded Live Map 1.14.0
 =========================
 
 SHROUDTOPIA PACKAGES (CLIENT AND SERVER)

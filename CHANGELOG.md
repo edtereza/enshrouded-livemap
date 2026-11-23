@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.14.0 (2026-11-23)
+- Add a dedicated-server native respawn backend for Guardian 3.2.0 hardcore, including strict build/pattern checks, exact account identity, transactional owned-inventory removal, level/XP and skill reset, and native StartLocation teleport without disconnect.
+- Add an offline executable compatibility probe, ABI/identity/completion checks, and EMF MIT attribution. See docs/HARDCORE.md for prerequisites and failure behavior.
+- Automated C++ checks and offline executable probe only; no in-game validation.
+
 ## 1.13.0 (2026-11-22)
 - Display real player tombstones using their template/family and live inventory/removal state.
 - Remove confirmed collected markers while preserving unobserved last-known positions.
