@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(enshrouded_livemap VERSION 2.0.0 LANGUAGES CXX ASM_MASM RC)
+project(enshrouded_livemap VERSION 1.13.0 LANGUAGES CXX ASM_MASM RC)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -40,7 +40,6 @@ set(LIVEMAP_SOURCES
     src/ecs.cpp
     src/scene.cpp
     src/world.cpp
-    src/hardcore.cpp
     src/web.cpp
     src/announce.cpp
     src/public_ip.cpp
@@ -91,12 +90,3 @@ add_executable(title_test tests/title_test.cpp src/config.cpp)
 target_link_libraries(title_test PRIVATE livemap_core bcrypt)
 target_compile_definitions(title_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 add_test(NAME title COMMAND title_test)
-
-
-add_library(guardian_bridge_fixture SHARED tests/guardian_bridge_fixture.cpp)
-set_target_properties(guardian_bridge_fixture PROPERTIES OUTPUT_NAME guardian RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/guardian-bridge-fixture")
-add_executable(guardian_bridge_test tests/guardian_bridge_test.cpp src/hardcore.cpp src/log.cpp)
-target_include_directories(guardian_bridge_test PRIVATE src)
-target_compile_definitions(guardian_bridge_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
-add_dependencies(guardian_bridge_test guardian_bridge_fixture)
-add_test(NAME guardian_bridge COMMAND guardian_bridge_test $<TARGET_FILE:guardian_bridge_fixture>)

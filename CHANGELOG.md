@@ -1,24 +1,5 @@
 # Changelog
 
-## 2.0.0 (2026-11-23)
-- Move the complete native hardcore implementation and its tests into Guardian 4.1.0. Retain only an optional ABI-2 telemetry bridge in Live Map to avoid duplicate engine hooks.
-- Add bridge regression coverage with Guardian absent, present and unloaded. Ordinary map functionality remains independent. Keep bootDelay=0 in the packaged loader configuration.
-
-## 1.14.2 (2026-11-23)
-- Correct the hardcore teleport preflight: LastTransform is 72 bytes (56-byte transform plus velocity/padding), not 56 bytes. Preserve strict layout validation.
-- Add a regression exercising the actual teleport preflight with valid 72-byte and rejected 56-byte LastTransform components. The remote log confirmed the former incorrect check blocked teleport before queuing.
-
-## 1.14.1 (2026-11-23)
-- Set the packaged Shroudtopia bootDelay to 0 and document early program registration for hardcore. Keep bootDelay=0 when merging existing server configurations.
-- Exclude invalid/tagged archetype sentinels from the hardcore initial-spawn scan before reading their memory. Guard native scalar reads.
-- Let C++ validation exceptions retain their detailed messages instead of misreporting them as access faults. Include the stage, native exception code, instruction and fault address in backend diagnostics.
-- Add synthetic invalid-sentinel and exception-filter regression coverage. Automated validation only; this does not establish the cause of every remote native fault.
-
-## 1.14.0 (2026-11-23)
-- Add a dedicated-server native respawn backend for Guardian 3.2.0 hardcore, including strict build/pattern checks, exact account identity, transactional owned-inventory removal, level/XP and skill reset, and native StartLocation teleport without disconnect.
-- Add an offline executable compatibility probe, ABI/identity/completion checks, and EMF MIT attribution. See docs/HARDCORE.md for prerequisites and failure behavior.
-- Automated C++ checks and offline executable probe only; no in-game validation.
-
 ## 1.13.0 (2026-11-22)
 - Display real player tombstones using their template/family and live inventory/removal state.
 - Remove confirmed collected markers while preserving unobserved last-known positions.
